@@ -157,6 +157,10 @@
   function formatMoney(n) {
     return Number(n || 0).toLocaleString('th-TH');
   }
+  function isTransferMethod(method = '') {
+    const value = String(method || '').toLowerCase();
+    return value === 'transfer' || value === 'qr' || value === 'promptpay';
+  }
   function escapeHtml(str = '') {
     return String(str)
       .replace(/&/g, '&amp;')
@@ -590,12 +594,12 @@
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusMeta = getUnitStatusMeta(unit);
       const statusText = cart.length > 0
-        ? '🟠'
+        ? 'มีค้างส่ง'
         : unit.checkoutRequested
-        ? '🟢'
+        ? 'รอเช็คบิล'
         : unit.orders.length > 0
-          ? '🟢'
-          : '⚪';
+          ? 'กำลังใช้งาน'
+          : 'ว่าง';
       const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
         : unit.orders.length > 0
@@ -610,7 +614,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[12px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}" title="${statusMeta.label}">${statusText}</div>
+              <div class="text-[11px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}" title="${statusMeta.label}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -1144,8 +1148,8 @@
     if (qs('stat-today')) qs('stat-today').textContent = formatMoney(today);
     if (qs('stat-week')) qs('stat-week').textContent = formatMoney(week);
     if (qs('stat-month')) qs('stat-month').textContent = formatMoney(month);
-    const cashTotal = state.db.sales.reduce((sum, sale) => sale.method === 'cash' ? sum + Number(sale.total || 0) : sum, 0);
-    const transferTotal = state.db.sales.reduce((sum, sale) => sale.method === 'transfer' ? sum + Number(sale.total || 0) : sum, 0);
+    const cashTotal = state.db.sales.reduce((sum, sale) => !isTransferMethod(sale.method) ? sum + Number(sale.total || 0) : sum, 0);
+    const transferTotal = state.db.sales.reduce((sum, sale) => isTransferMethod(sale.method) ? sum + Number(sale.total || 0) : sum, 0);
     const grandTotal = cashTotal + transferTotal;
     if (qs('stat-grand-total')) qs('stat-grand-total').textContent = formatMoney(grandTotal);
     if (qs('stat-cash-total')) qs('stat-cash-total').textContent = formatMoney(cashTotal);
@@ -1164,7 +1168,7 @@
             </div>
             <div class="text-right shrink-0">
               <div class="font-black theme-text text-lg">฿${formatMoney(sale.total)}</div>
-              <div class="text-[10px] text-gray-500 font-black">${sale.method === 'transfer' ? '📱 โอน/QR' : '💵 เงินสด'}</div>
+              <div class="text-[10px] text-gray-500 font-black">${isTransferMethod(sale.method) ? '📱 โอน/QR' : '💵 เงินสด'}</div>
             </div>
           </div>
         `).join('');
@@ -1191,20 +1195,29 @@
   }
 
   function calculateCustomSalesRealtime() {
-    const start = qs('search-start')?.value;
-    const end = qs('search-end')?.value;
-    if (!start || !end) return;
-    const rangeStart = start <= end ? start : end;
-    const rangeEnd = start <= end ? end : start;
-    if (start > end) {
-      if (qs('search-start')) qs('search-start').value = rangeStart;
-      if (qs('search-end')) qs('search-end').value = rangeEnd;
+    const start = qs('search-start')?.value || '';
+    const end = qs('search-end')?.value || '';
+    if (!start && !end) {
+      if (qs('search-total')) qs('search-total').textContent = formatMoney(0);
+      return;
     }
-    const total = state.db.sales.reduce((sum, sale) => {
-      if (sale.date >= rangeStart && sale.date <= rangeEnd) return sum + Number(sale.total || 0);
-      return sum;
-    }, 0);
-    if (qs('search-total')) qs('search-total').textContent = formatMoney(total);
+
+    let rangeStart = start || end;
+    let rangeEnd = end || start;
+    if (rangeStart > rangeEnd) [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+
+    if (qs('search-start')) qs('search-start').value = rangeStart;
+    if (qs('search-end')) qs('search-end').value = rangeEnd;
+
+    const summary = state.db.sales.reduce((acc, sale) => {
+      if (sale.date < rangeStart || sale.date > rangeEnd) return acc;
+      const amount = Number(sale.total || 0);
+      if (isTransferMethod(sale.method)) acc.transfer += amount;
+      else acc.cash += amount;
+      return acc;
+    }, { cash: 0, transfer: 0 });
+
+    if (qs('search-total')) qs('search-total').textContent = formatMoney(summary.cash + summary.transfer);
   }
 
   function clearSales() {

@@ -227,6 +227,13 @@ hr {
   background: var(--idle) !important;
 }
 
+.trial-badge-wrap {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 12;
+}
+
 #trial-badge {
   min-height: 42px;
   padding-inline: 22px !important;
@@ -474,8 +481,8 @@ hr {
 #ordered-items-list,
 #item-list,
 #sales-history,
-#dash-top,
-#dash-history,
+#dash-top:not(.hidden),
+#dash-history:not(.hidden),
 #shop-queue,
 #client-approval-list,
 #admin-menu-list,
@@ -490,8 +497,8 @@ hr {
 #ordered-items-list > *,
 #item-list > *,
 #sales-history > *,
-#dash-top > *,
-#dash-history > *,
+#dash-top:not(.hidden) > *,
+#dash-history:not(.hidden) > *,
 #shop-queue > *,
 #client-approval-list > *,
 #admin-menu-list > *,
@@ -893,7 +900,14 @@ hr {
     letter-spacing: 0.01em;
   }
 
-  #trial-badge {
+  .trial-badge-wrap {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 12;
+}
+
+#trial-badge {
     padding: 6px 14px !important;
     font-size: 12px !important;
   }

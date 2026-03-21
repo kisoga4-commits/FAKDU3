@@ -629,20 +629,12 @@
 
     <!--* modal-sync-key-confirm open -->
     <div class="modal-overlay hidden" id="modal-sync-key-confirm">
-        <div class="modal-content text-center border-t-4 border-blue-500">
-
-            <h3 class="font-black text-2xl mb-1 text-slate-800">สร้าง PIN ใหม่?</h3>
-            <p class="text-[11px] text-gray-500 mb-5 font-bold">ลูกต้องขออนุมัติใหม่</p>
-            <div class="flex gap-3">
-                <button onclick="closeModal('modal-sync-key-confirm')" class="flex-1 bg-gray-100 py-4 rounded-[18px] font-black text-gray-500 text-sm">ยกเลิก</button>
-                <button onclick="confirmNewSyncKey()" class="flex-[2] bg-slate-900 text-white py-4 rounded-[18px] font-black shadow-lg text-sm">ยืนยัน</button>
-
+        <div class="modal-content text-center border-t-4 border-blue-500 max-w-[420px] w-[92vw] sm:w-full">
             <h3 class="font-black text-2xl mb-1 text-slate-800">ยืนยันสร้าง PIN ใหม่</h3>
-            <p class="text-[11px] text-gray-500 mb-5 font-bold">เครื่องลูกที่เคยเชื่อมต่ออยู่ต้องขออนุมัติใหม่ทั้งหมด</p>
-            <div class="flex gap-3">
-                <button onclick="closeModal('modal-sync-key-confirm')" class="flex-1 bg-gray-100 py-4 rounded-[18px] font-black text-gray-500 text-sm">ยกเลิก</button>
-                <button onclick="confirmNewSyncKey()" class="flex-[2] bg-slate-900 text-white py-4 rounded-[18px] font-black shadow-lg text-sm">ยืนยันสร้าง PIN ใหม่</button>
-
+            <p class="text-[12px] text-gray-500 mb-5 font-bold leading-relaxed">เครื่องลูกที่เคยเชื่อมต่อจะต้องขออนุมัติใหม่ทั้งหมด</p>
+            <div class="flex gap-3 w-full">
+                <button onclick="closeModal('modal-sync-key-confirm')" class="flex-1 bg-gray-100 py-3.5 rounded-[16px] font-black text-gray-500 text-sm">ยกเลิก</button>
+                <button onclick="confirmNewSyncKey()" class="flex-1 bg-slate-900 text-white py-3.5 rounded-[16px] font-black shadow-lg text-sm">ยืนยัน</button>
             </div>
         </div>
     </div>

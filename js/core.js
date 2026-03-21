@@ -2583,20 +2583,6 @@ function getUnitCardClass(unit) {
   }
 
   function requestNewSyncKey() {
-
-    openModal('modal-sync-key-confirm');
-  }
-
-  function confirmNewSyncKey() {
-    closeModal('modal-sync-key-confirm');
-
-    const today = getLocalYYYYMMDD();
-    const sameDay = String(state.db.sync.keyResetDate || '') === String(today);
-    const usedToday = sameDay ? Number(state.db.sync.keyResetCount || 0) : 0;
-    if (usedToday >= 3) {
-      showToast('ขอ PIN ได้สูงสุด 3 ครั้ง/วัน', 'error');
-      return;
-    }
     openModal('modal-sync-key-confirm');
   }
 
@@ -2857,6 +2843,10 @@ function getUnitCardClass(unit) {
       const raw = await resolveDbApi().load();
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();
+      if (IS_CLIENT_NODE && !getStoredClientSession()?.clientSessionToken) {
+        const pendingShopId = localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '';
+        if (pendingShopId) state.db.shopId = pendingShopId;
+      }
       if (!state.db.sync.masterDeviceId) state.db.sync.masterDeviceId = state.hwid;
       if (!state.db.sync.currentSyncPin) state.db.sync.currentSyncPin = generateSyncPin(state.db.shopId, state.db.sync.syncVersion || 1);
       state.db.sync.key = state.db.sync.currentSyncPin;

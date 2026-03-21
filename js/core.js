@@ -241,6 +241,9 @@
     }
     return random;
   }
+  function normalizeSyncPin(pin = '') {
+    return String(pin || '').replace(/\D/g, '').slice(0, 6);
+  }
   function ensureClientId() {
     let clientId = localStorage.getItem('FAKDU_CLIENT_ID') || '';
     if (!clientId) {
@@ -3020,19 +3023,39 @@ function getUnitCardClass(unit) {
   }
 
   async function submitClientAccessRequest() {
+
+    const rawPin = qs('manual-pin')?.value?.trim() || '';
+    const pin = normalizeSyncPin(rawPin);
+    if (pin.length !== 6) return showToast('PIN ต้องเป็นตัวเลข 6 หลัก', 'error');
+    if (qs('manual-pin')) qs('manual-pin').value = pin;
+
     const pin = qs('manual-pin')?.value?.trim() || '';
     if (!pin) return showToast('กรุณากรอก PIN', 'error');
+
     const api = resolveFirebaseSyncApi();
     if (!api) return showToast('เชื่อม cloud ไม่ได้', 'error');
     const profile = getClientProfile();
     let resolvedShopId = '';
     let serverVersion = 0;
     try {
+
+      let pinMap = null;
+      if (typeof api.readSyncPin === 'function') {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          pinMap = await api.readSyncPin(pin);
+          if (pinMap?.shopId && pinMap.active !== false) break;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
+      if (!pinMap?.shopId || pinMap.active === false) {
+        showToast('PIN ไม่ถูกต้อง หรือเครื่องแม่ยังไม่ขึ้น cloud', 'error');
+
       const pinMap = typeof api.readSyncPin === 'function'
         ? await api.readSyncPin(pin)
         : null;
       if (!pinMap?.shopId || pinMap.active === false) {
         showToast('PIN ไม่ถูกต้อง', 'error');
+
         return;
       }
       resolvedShopId = String(pinMap.shopId || '');

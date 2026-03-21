@@ -15,6 +15,9 @@
   function uid() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
+  function normalizeSyncPin(pin = '') {
+    return String(pin || '').replace(/\D/g, '').slice(0, 6);
+  }
 
   function resolveApi() {
     const fb = window.firebase;
@@ -25,8 +28,13 @@
 
     return {
       async readSyncPin(pin = '') {
+
+        const safePin = normalizeSyncPin(pin);
+        if (safePin.length !== 6) return null;
+
         const safePin = String(pin || '').trim();
         if (!safePin) return null;
+
         const snap = await db.ref(`syncPins/${safePin}`).get();
         if (!snap.exists()) return null;
         const payload = snap.val() || {};
@@ -47,10 +55,17 @@
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
         const safeVersion = Number(meta.syncVersion || 1);
+
+        const safePin = normalizeSyncPin(meta.currentSyncPin || '');
+        const masterPath = `${shopRoot(shopId)}/master`;
+        const prevSnap = await db.ref(masterPath).get();
+        const prevPin = normalizeSyncPin(prevSnap.val()?.currentSyncPin || '');
+
         const safePin = String(meta.currentSyncPin || '').trim();
         const masterPath = `${shopRoot(shopId)}/master`;
         const prevSnap = await db.ref(masterPath).get();
         const prevPin = String(prevSnap.val()?.currentSyncPin || '').trim();
+
         const payload = {
           shopId,
           shopName: meta.shopName || 'FAKDU',

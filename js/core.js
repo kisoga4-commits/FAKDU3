@@ -195,6 +195,10 @@
     if (IS_CLIENT_NODE) return getClientProfile().profileName;
     return state.db.shopName || 'เครื่องแม่';
   }
+  function getCurrentDeviceId() {
+    if (IS_CLIENT_NODE) return getClientProfile().clientId;
+    return state.hwid || state.db.sync.masterDeviceId || 'MASTER';
+  }
   function canManageOrders() {
     return !IS_CLIENT_NODE && state.isAdminLoggedIn;
   }
@@ -421,7 +425,12 @@
     if (!merged.shopId) merged.shopId = makeShopId();
     if (!merged.sync.syncVersion || Number(merged.sync.syncVersion) < 1) merged.sync.syncVersion = 1;
     if (!merged.sync.masterDeviceId) merged.sync.masterDeviceId = state.hwid || '';
-    if (!merged.sync.currentSyncPin) merged.sync.currentSyncPin = merged.sync.key || generateSyncPin(merged.shopId, merged.sync.syncVersion);
+    if (!merged.sync.currentSyncPin) {
+      const legacyKey = String(merged.sync.key || '');
+      merged.sync.currentSyncPin = (legacyKey && legacyKey !== String(merged.shopId || ''))
+        ? legacyKey
+        : generateSyncPin(merged.shopId, merged.sync.syncVersion);
+    }
     merged.sync.key = merged.sync.currentSyncPin;
     return merged;
   }
@@ -440,11 +449,12 @@
   }
 
   function logOperation(type, payload = {}) {
-    state.db.opLog.push({
+    const entry = {
       opId: `OP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       id: `OP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       shopId: state.db.shopId,
       clientId: payload.clientId || (IS_CLIENT_NODE ? getClientProfile().clientId : (state.db.sync.masterDeviceId || state.hwid || 'MASTER')),
+      deviceId: payload.deviceId || getCurrentDeviceId(),
       profileName: payload.profileName || getCurrentProfileName(),
       role: payload.role || (IS_CLIENT_NODE ? 'client' : 'master'),
       tableId: payload.tableId || payload.unitId || null,
@@ -452,8 +462,24 @@
       payload: { ...payload, actor: getActorLabel() },
       timestamp: Date.now(),
       at: Date.now()
-    });
+    };
+    state.db.opLog.push(entry);
     if (state.db.opLog.length > 400) state.db.opLog = state.db.opLog.slice(-400);
+    const writeTypes = new Set([
+      'SEND_ORDER',
+      'CLIENT_APPEND_ORDER',
+      'CLIENT_APPEND_ORDER_REQUEST',
+      'REQUEST_CHECKOUT',
+      'CLIENT_REQUEST_CHECKOUT',
+      'CHECKOUT_REQUEST_TOGGLE',
+      'CONFIRM_PAYMENT'
+    ]);
+    if (writeTypes.has(type)) {
+      const api = resolveFirebaseSyncApi();
+      if (api && state.db.shopId) {
+        api.writeOperation(state.db.shopId, entry).catch(() => {});
+      }
+    }
   }
   //* save/load close
 
@@ -1839,23 +1865,13 @@ function getUnitCardClass(unit) {
     const api = resolveFirebaseSyncApi();
     if (!api) return;
     try {
-      const clientSessions = (state.db.sync.clients || []).reduce((acc, client) => {
-        if (!client?.clientId || !client?.approved || !client?.clientSessionToken) return acc;
-        acc[client.clientId] = {
-          clientSessionToken: client.clientSessionToken,
-          sessionSyncVersion: Number(client.sessionSyncVersion || 0)
-        };
-        return acc;
-      }, {});
       await api.writeSyncMeta(state.db.shopId, {
         shopId: state.db.shopId,
         shopName: state.db.shopName || 'FAKDU',
         masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
         currentSyncPin: state.db.sync.currentSyncPin || '',
         syncVersion: Number(state.db.sync.syncVersion || 1),
-        approvedClients: state.db.sync.approvedClients || [],
-        clientSession: null,
-        clientSessions
+        approvedClients: state.db.sync.approvedClients || []
       });
     } catch (_) {}
   }
@@ -1911,6 +1927,8 @@ function getUnitCardClass(unit) {
         type: 'MASTER_SNAPSHOT',
         payload
       });
+      const api = resolveFirebaseSyncApi();
+      if (api && state.db.shopId) api.writeSnapshot(state.db.shopId, payload).catch(() => {});
       localStorage.setItem(`${LS_SNAPSHOT_PREFIX}${state.db.shopId || 'DEFAULT'}`, JSON.stringify(payload));
     } catch (_) {}
   }
@@ -2138,6 +2156,17 @@ function getUnitCardClass(unit) {
           syncVersion: getPendingSyncVersion()
         }
       });
+      const api = resolveFirebaseSyncApi();
+      if (api) {
+        api.writeJoinRequest(pendingShopId, {
+          clientId: profile.clientId,
+          profileName: profile.profileName,
+          avatar: profile.avatar,
+          pin: pendingPin,
+          shopId: pendingShopId,
+          syncVersion: getPendingSyncVersion()
+        }).catch(() => {});
+      }
     } catch (_) {}
   }
 
@@ -2370,6 +2399,19 @@ function getUnitCardClass(unit) {
       profileName: row.profileName || row.name || row.clientId,
       sessionSyncVersion: row.sessionSyncVersion
     }));
+    const api = resolveFirebaseSyncApi();
+    if (api && state.db.shopId) {
+      api.upsertClient(state.db.shopId, {
+        clientId: client.clientId,
+        profileName: client.profileName || client.name || client.clientId,
+        avatar: client.avatar || '',
+        approved: true,
+        clientSessionToken: client.clientSessionToken,
+        sessionSyncVersion: Number(client.sessionSyncVersion || state.db.sync.syncVersion || 1),
+        approvedAt: Date.now(),
+        approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+      }).catch(() => {});
+    }
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('APPROVE_CLIENT', { clientId });
     try {
@@ -2395,6 +2437,15 @@ function getUnitCardClass(unit) {
   function rejectClient(clientId) {
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('REJECT_CLIENT', { clientId });
+    const api = resolveFirebaseSyncApi();
+    if (api && state.db.shopId) {
+      api.upsertClient(state.db.shopId, {
+        clientId,
+        approved: false,
+        rejectedAt: Date.now(),
+        rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+      }).catch(() => {});
+    }
     try {
       emitSyncMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false, shopId: state.db.shopId } });
     } catch (_) {}
@@ -2548,6 +2599,8 @@ function getUnitCardClass(unit) {
     state.db.sync.approvedClients = [];
     localStorage.removeItem('FAKDU_CLIENT_SESSION');
     logOperation('RESET_SYNC_KEY', { syncVersion: state.db.sync.syncVersion });
+    const api = resolveFirebaseSyncApi();
+    if (api && state.db.shopId) api.clearClientSessions(state.db.shopId).catch(() => {});
     try {
       emitSyncMessage({
         type: 'MASTER_SYNC_ROTATED',

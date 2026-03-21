@@ -618,12 +618,21 @@
     grid.classList.add(state.gridZoom === 1 ? 'grid-cols-3' : state.gridZoom === 2 ? 'grid-cols-2' : 'grid-cols-1');
   }
 
+ // codex/remove-notifications-and-fix-pin-access-f1rtk5
+  function getUnitCardClass(unit) {
+    const cart = state.db.carts[unit.id] || [];
+    if (cart.length > 0) return 'unit-card--draft';
+    if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
+    return 'unit-card--idle';
+  }
+
 function getUnitCardClass(unit) {
   const cart = state.db.carts[unit.id] || [];
   if (cart.length > 0) return 'unit-card--draft';
   if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
   return 'unit-card--idle';
 }
+ main
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
@@ -660,7 +669,11 @@ function getUnitCardClass(unit) {
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusMeta = getUnitStatusMeta(unit);
+ codex/remove-notifications-and-fix-pin-access-f1rtk5
+      const statusText = statusMeta.cls === 'status-idle' ? 'ว่าง' : '';
+
       const statusText = statusMeta.label;
+ main
       const statusPillClass = statusMeta.cls === 'status-draft'
         ? 'bg-amber-100 text-amber-700'
         : statusMeta.cls === 'status-active'
@@ -1813,12 +1826,18 @@ function getUnitCardClass(unit) {
   function applyMasterSnapshot(payload) {
     if (!payload || !IS_CLIENT_NODE) return;
     if (!isClientSessionValid()) return;
- codex/remove-notifications-and-fix-pin-access-jdab4j
+ 
+
+
+ main
     const session = getStoredClientSession();
     if (session && Number(payload.syncVersion || 0) > Number(session.syncVersion || 0)) {
       invalidateClientSession('เครื่องแม่เปลี่ยน PIN แล้ว กรุณาขออนุมัติใหม่');
       return;
     }
+ 
+
+
 
  main
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
@@ -2600,7 +2619,10 @@ function getUnitCardClass(unit) {
         if (qs('sys-client-name')) qs('sys-client-name').value = profile.profileName;
         if (qs('client-device-name')) qs('client-device-name').textContent = profile.profileName;
         if (qs('client-avatar') && profile.avatar) qs('client-avatar').src = profile.avatar;
- codex/remove-notifications-and-fix-pin-access-jdab4j
+
+
+
+ main
         const session = getStoredClientSession();
         state.db.sync.clientSession = session ? {
           shopId: session.shopId || '',
@@ -2608,6 +2630,7 @@ function getUnitCardClass(unit) {
           clientSessionToken: session.clientSessionToken || '',
           syncVersion: Number(session.syncVersion || state.db.sync.syncVersion || 1)
         } : null;
+
 
  main
         if (!isClientSessionValid()) {

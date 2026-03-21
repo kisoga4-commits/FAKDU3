@@ -115,7 +115,7 @@ hr {
   max-width: 520px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 10px 12px 24px;
+  padding: 12px 14px 28px;
 }
 
 #pwa-install-banner {
@@ -252,7 +252,7 @@ hr {
 .top-nav {
   display: grid !important;
   grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 12px;
   padding: 6px;
   background: rgba(255,255,255,0.84);
@@ -267,7 +267,7 @@ hr {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   min-height: 58px;
   padding: 8px 6px;
   border-radius: 16px;
@@ -322,7 +322,7 @@ hr {
 
 #grid-units {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -656,7 +656,7 @@ hr {
   inset: 0;
   z-index: 120;
   display: none;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   padding: 18px 14px;
   background: rgba(2, 6, 23, 0.48);

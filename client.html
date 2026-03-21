@@ -33,13 +33,18 @@
     </div>
 
     <div class="top-nav">
-        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)">👨‍👩‍👦 โต๊ะ/คิว</div>
-        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)">🧾 เช็คบิล</div>
-        <div id="tab-settings" class="nav-tab" onclick="switchTab('settings', this)">⚙️ ตั้งค่าลูก</div>
+        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)"><span class="nav-icon">👨‍👩‍👦</span><span class="nav-label">ลูกค้า</span></div>
+        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)"><span class="nav-icon">🧾</span><span class="nav-label">เช็คบิล</span></div>
+        <div id="tab-settings" class="nav-tab" onclick="switchTab('settings', this)"><span class="nav-icon">⚙️</span><span class="nav-label">ตั้งค่า</span></div>
     </div>
     <div id="screen-customer" class="screen active p-5 pt-4">
         <div class="flex justify-between items-center mb-3">
             <span class="text-[11px] font-bold text-gray-400 uppercase">เลือกโต๊ะที่ต้องการสั่ง</span>
+            <div class="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+                <button onclick="changeGridZoom(-1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">-</button>
+                <div class="w-8 h-8 flex items-center justify-center font-bold text-xs text-gray-400" id="zoom-level-text">M</div>
+                <button onclick="changeGridZoom(1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">+</button>
+            </div>
         </div>
         <div id="grid-units" class="grid grid-cols-2 gap-4"></div>
     </div>

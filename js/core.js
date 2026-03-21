@@ -61,6 +61,13 @@
       }
     }
   };
+  const TRIAL_LIMITS = {
+    unitMax: 4,
+    menuMax: 4,
+    onlineClientMax: 1,
+    topBasicMax: 3,
+    themePalette: ['#800000', '#1d4ed8', '#0f766e', '#b45309', '#111827']
+  };
   const state = {
     db: structuredClone(DEFAULT_DB),
     isAdminLoggedIn: localStorage.getItem(LS_ADMIN) === 'true',
@@ -342,6 +349,10 @@
 
   //* theme open
   function applyTheme() {
+    if (!state.isPro && !TRIAL_LIMITS.themePalette.includes((state.db.theme || '').toLowerCase())) {
+      state.db.theme = TRIAL_LIMITS.themePalette[0];
+      if (qs('sys-theme')) qs('sys-theme').value = state.db.theme;
+    }
     document.documentElement.style.setProperty('--primary', state.db.theme || '#800000');
     document.documentElement.style.setProperty('--bg', state.db.bgColor || '#f8fafc');
     document.body.style.background = state.db.bgColor || '#f8fafc';
@@ -357,6 +368,11 @@
     }
     const recoveryBox = qs('pro-recovery-setup');
     if (recoveryBox) recoveryBox.classList.toggle('hidden', !state.isPro);
+    const forgotBtn = qs('btn-open-recovery');
+    if (forgotBtn) {
+      forgotBtn.disabled = !state.isPro;
+      forgotBtn.classList.toggle('opacity-40', !state.isPro);
+    }
   }
   //* theme close
 
@@ -612,8 +628,8 @@
       `;
       return;
     }
-    list.innerHTML = state.db.items.map((item) => `
-      <button onclick="handleItemClick('${item.id}')" class="w-full bg-white p-3 rounded-[24px] border shadow-sm flex gap-3 active:scale-[0.99]">
+    list.innerHTML = state.db.items.map((item, index) => `
+      <button onclick="handleItemClickByIndex(${index})" class="w-full bg-white p-3 rounded-[24px] border shadow-sm flex gap-3 active:scale-[0.99]">
         ${item.img
           ? `<img src="${item.img}" class="w-20 h-20 rounded-[18px] object-cover bg-gray-100">`
           : `<div class="w-20 h-20 rounded-[18px] bg-gray-100 flex items-center justify-center text-3xl">🍽️</div>`}
@@ -722,8 +738,14 @@
     }
   }
 
+  function handleItemClickByIndex(index) {
+    const item = state.db.items[index];
+    if (!item) return;
+    handleItemClick(item.id);
+  }
+
   function reviewCart() {
-    confirmOrderSend();
+    openReviewCartModal();
   }
 
   function openReviewCartModal() {
@@ -1056,10 +1078,11 @@
     const topBox = qs('top-items-list');
     if (topBox) {
       const top = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      if (!top.length) {
+      const topDisplay = state.isPro ? top : top.slice(0, TRIAL_LIMITS.topBasicMax);
+      if (!topDisplay.length) {
         topBox.innerHTML = '<div class="py-8 text-center text-gray-400 font-bold">ยังไม่มียอดฮิต</div>';
       } else {
-        topBox.innerHTML = top.map(([name, qty], idx) => `
+        topBox.innerHTML = topDisplay.map(([name, qty], idx) => `
           <div class="flex justify-between items-center bg-gray-50 p-3 rounded-2xl border">
             <div class="font-black text-gray-800">${idx + 1}. ${escapeHtml(name)}</div>
             <div class="text-[10px] font-black px-2 py-1 rounded-full bg-white border text-gray-500">${qty} ครั้ง</div>
@@ -1212,6 +1235,9 @@
       if (state.tempImg) target.img = state.tempImg;
       logOperation('UPDATE_MENU_ITEM', { itemId: target.id });
     } else {
+      if (!state.isPro && state.db.items.length >= TRIAL_LIMITS.menuMax) {
+        return showToast(`รุ่นทดลองเพิ่มเมนูได้สูงสุด ${TRIAL_LIMITS.menuMax} รายการ`, 'error');
+      }
       state.db.items.push({
         id: `ITM-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name,
@@ -1235,8 +1261,12 @@
   }
 
   function updateUnits() {
-    const count = Math.max(1, Number(qs('config-unit-count')?.value || state.db.unitCount || 4));
+    const rawCount = Math.max(1, Number(qs('config-unit-count')?.value || state.db.unitCount || 4));
+    const count = state.isPro ? rawCount : Math.min(TRIAL_LIMITS.unitMax, rawCount);
     const type = qs('config-unit-type')?.value || 'โต๊ะ';
+    if (!state.isPro && rawCount > TRIAL_LIMITS.unitMax) {
+      showToast(`รุ่นทดลองจำกัด ${TRIAL_LIMITS.unitMax} ${type}`, 'error');
+    }
     forceRebuildUnits(count, type);
     saveDb({ render: true, sync: true });
     showToast('อัปเดตจำนวนโต๊ะ/คิวแล้ว', 'success');
@@ -1318,6 +1348,7 @@
   }
 
   async function exportBackup() {
+    if (!state.isPro) return showToast('รุ่นทดลองไม่รองรับ Backup', 'error');
     const dbApi = resolveDbApi();
     const raw = dbApi.exportData ? await dbApi.exportData(state.db) : JSON.stringify(state.db, null, 2);
     const blob = new Blob([raw], { type: 'application/json' });
@@ -1331,6 +1362,7 @@
   }
 
   async function importBackup(event) {
+    if (!state.isPro) return showToast('รุ่นทดลองไม่รองรับ Restore', 'error');
     const file = event?.target?.files?.[0];
     if (!file) return;
     if (!confirm('ข้อมูลในเครื่องจะถูกแทนที่ด้วยไฟล์ backup นี้ ยืนยันหรือไม่?')) return;
@@ -1379,6 +1411,7 @@
   }
 
   function executeRecovery() {
+    if (!state.isPro) return showToast('รุ่นทดลองยังไม่รองรับลืมรหัส Admin', 'error');
     const phone = qs('rec-ans-phone')?.value?.trim() || '';
     const color = qs('rec-ans-color')?.value || '';
     const animal = qs('rec-ans-animal')?.value || '';
@@ -1451,6 +1484,29 @@
     if (state.isPro) return;
     openModal('modal-pro-unlock');
   }
+
+  function applyTrialUiGuards() {
+    if (state.isPro) return;
+    if ((state.db.unitCount || 0) > TRIAL_LIMITS.unitMax) {
+      forceRebuildUnits(TRIAL_LIMITS.unitMax, state.db.unitType || 'โต๊ะ');
+    }
+    if (state.db.items.length > TRIAL_LIMITS.menuMax) {
+      state.db.items = state.db.items.slice(0, TRIAL_LIMITS.menuMax);
+    }
+    if (Array.isArray(state.db.sync.clients) && state.db.sync.clients.length > TRIAL_LIMITS.onlineClientMax) {
+      state.db.sync.clients = state.db.sync.clients.slice(0, TRIAL_LIMITS.onlineClientMax);
+    }
+    const unitInput = qs('config-unit-count');
+    if (unitInput) unitInput.max = String(TRIAL_LIMITS.unitMax);
+    const addMenuBtn = qs('btn-add-menu-item');
+    if (addMenuBtn) addMenuBtn.disabled = state.db.items.length >= TRIAL_LIMITS.menuMax;
+    const backupBtn = qs('btn-export-backup');
+    if (backupBtn) backupBtn.disabled = true;
+    const restoreWrap = qs('btn-import-backup-wrap');
+    const restoreInput = qs('input-import-backup');
+    if (restoreWrap) restoreWrap.classList.add('opacity-50', 'pointer-events-none');
+    if (restoreInput) restoreInput.disabled = true;
+  }
   //* pro/vault close
 
   //* sync open
@@ -1519,6 +1575,9 @@
 
   function handleClientAccessRequest(client) {
     if (!client?.clientId) return;
+    if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
+      return;
+    }
     const exists = state.db.sync.approvals.find((row) => row.clientId === client.clientId);
     if (exists) {
       exists.requestedAt = Date.now();
@@ -1610,6 +1669,10 @@
   }
 
   function approveClient(clientId) {
+    if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
+      showToast(`รุ่นทดลองจำกัดเครื่องลูก ${TRIAL_LIMITS.onlineClientMax} เครื่อง`, 'error');
+      return;
+    }
     const approval = state.db.sync.approvals.find((row) => row.clientId === clientId);
     if (!approval) return;
     let client = state.db.sync.clients.find((row) => row.clientId === clientId);
@@ -1856,6 +1919,7 @@
   //* render open
   function renderAll() {
     applyTheme();
+    applyTrialUiGuards();
     updateMasterConnectionUi();
     renderOnlineClientsUi();
     renderCustomerGrid();
@@ -1876,6 +1940,7 @@
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();
       await syncProStatus();
+      applyTrialUiGuards();
       bindSyncChannel();
       loadSettingsToForm();
       applyTheme();
@@ -1913,6 +1978,7 @@
     adminLogout,
     changeGridZoom,
     openTable,
+    handleItemClickByIndex,
     reviewCart,
     openReviewCartModal,
     editCartItem,
@@ -1937,6 +2003,10 @@
     exportBackup,
     importBackup,
     openRecoveryModal: () => {
+      if (!state.isPro) {
+        showToast('รุ่นทดลองยังไม่รองรับลืมรหัส Admin', 'error');
+        return;
+      }
       closeModal('modal-admin-pin');
       openModal('modal-recovery');
     },

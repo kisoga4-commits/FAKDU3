@@ -1938,17 +1938,28 @@ function getUnitCardClass(unit) {
       };
       return acc;
     }, {});
-    try {
-      await api.writeSyncMeta(state.db.shopId, {
-        shopId: state.db.shopId,
-        shopName: state.db.shopName || 'FAKDU',
-        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
-        currentSyncPin: state.db.sync.currentSyncPin || '',
-        syncVersion: Number(state.db.sync.syncVersion || 1),
-        approvedClients: state.db.sync.approvedClients || [],
-        clientSessions
-      });
-    } catch (_) {}
+    const buildPayload = () => ({
+      shopId: state.db.shopId,
+      shopName: state.db.shopName || 'FAKDU',
+      masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
+      currentSyncPin: state.db.sync.currentSyncPin || '',
+      syncVersion: Number(state.db.sync.syncVersion || 1),
+      approvedClients: state.db.sync.approvedClients || [],
+      clientSessions
+    });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await api.writeSyncMeta(state.db.shopId, buildPayload());
+        return;
+      } catch (error) {
+        const isCollision = String(error?.code || error?.message || '') === 'PIN_COLLISION';
+        if (!isCollision) return;
+        state.db.sync.currentSyncPin = generateSyncPin(state.db.shopId, state.db.sync.syncVersion);
+        state.db.sync.key = state.db.sync.currentSyncPin;
+        updateSyncUi();
+        if (attempt === 2) showToast('PIN ซ้ำหลายครั้ง กรุณาลองใหม่', 'error');
+      }
+    }
   }
 
   async function ensureCloudSnapshotAndOperations() {

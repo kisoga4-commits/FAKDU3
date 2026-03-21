@@ -25,6 +25,31 @@
     if (!fb.apps || !fb.apps.length) fb.initializeApp(firebaseConfig);
     const db = fb.database();
     const shopRoot = (shopId = '') => `shops/${shopId}`;
+    const SYNC_PIN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+
+    async function cleanupSyncPinsForShop(shopId = '', currentPin = '', prevPin = '') {
+      if (!shopId) return;
+      try {
+        const snap = await db.ref('syncPins').orderByChild('shopId').equalTo(shopId).get();
+        if (!snap.exists()) return;
+        const now = Date.now();
+        const values = snap.val() || {};
+        const tasks = [];
+        Object.entries(values).forEach(([pin, row]) => {
+          const safe = normalizeSyncPin(pin);
+          if (!safe) return;
+          if (safe === currentPin) return;
+          const payload = row && typeof row === 'object' ? row : {};
+          const isActive = payload.active !== false;
+          const updatedAt = Number(payload.updatedAt || 0);
+          const isExpired = updatedAt > 0 && (now - updatedAt) > SYNC_PIN_TTL_MS;
+          if (safe === prevPin || (!isActive && isExpired)) {
+            tasks.push(db.ref(`syncPins/${safe}`).remove());
+          }
+        });
+        if (tasks.length) await Promise.all(tasks);
+      } catch (_) {}
+    }
 
     return {
       async readSyncPin(pin = '') {
@@ -77,6 +102,27 @@
           clientSessions: safeClientSessions,
           updatedAt: Date.now()
         };
+        const now = Date.now();
+        if (safePin) {
+          const pinRef = db.ref(`syncPins/${safePin}`);
+          const tx = await pinRef.transaction((current) => {
+            const currentShopId = String(current?.shopId || '');
+            const isAvailable = !current || currentShopId === shopId || current?.active === false;
+            if (!isAvailable) return;
+            return {
+              shopId,
+              syncVersion: safeVersion,
+              masterDeviceId: payload.masterDeviceId,
+              active: true,
+              updatedAt: now
+            };
+          });
+          if (!tx.committed) {
+            const err = new Error('PIN_COLLISION');
+            err.code = 'PIN_COLLISION';
+            throw err;
+          }
+        }
         await db.ref(masterPath).set(payload);
         if (safePin) {
           await db.ref(`syncPins/${safePin}`).set({
@@ -84,7 +130,7 @@
             syncVersion: safeVersion,
             masterDeviceId: payload.masterDeviceId,
             active: true,
-            updatedAt: Date.now()
+            updatedAt: now
           });
         }
         if (prevPin && prevPin !== safePin) {
@@ -93,9 +139,10 @@
             syncVersion: safeVersion,
             masterDeviceId: payload.masterDeviceId,
             active: false,
-            updatedAt: Date.now()
+            updatedAt: now
           });
         }
+        await cleanupSyncPinsForShop(shopId, safePin, prevPin);
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};
@@ -156,17 +203,20 @@
       },
       async writeJoinRequest(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
+        const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
           ...client,
+          type: 'CLIENT_ACCESS_REQUEST',
           status: 'pending',
-          requestedAt: Date.now(),
-          updatedAt: Date.now()
+          requestedAt: Number(client.requestedAt || now),
+          updatedAt: now
         });
       },
       async upsertClient(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
         await db.ref(`${shopRoot(shopId)}/clients/${client.clientId}`).set({
           ...client,
+          sessionVersion: Number(client.sessionVersion || client.sessionSyncVersion || client.syncVersion || 1),
           updatedAt: Date.now()
         });
       },
@@ -178,10 +228,12 @@
       async writeOperation(shopId = '', operation = {}) {
         if (!shopId || !operation?.type) return;
         const opId = String(operation.opId || operation.id || uid());
+        const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/operations/${opId}`).set({
           ...operation,
           opId,
-          createdAt: Date.now()
+          timestamp: Number(operation.timestamp || now),
+          createdAt: now
         });
       },
       async writeSnapshot(shopId = '', snapshot = {}) {

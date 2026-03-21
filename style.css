@@ -367,6 +367,12 @@ hr {
   box-shadow: 0 14px 30px rgba(245, 158, 11, 0.2) !important;
 }
 
+.unit-card-active {
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  background: linear-gradient(180deg, #ecfdf5 0%, #ffffff 100%) !important;
+  box-shadow: 0 14px 30px rgba(16, 185, 129, 0.2) !important;
+}
+
 .send-order-btn {
   min-width: 150px;
   transition: all 0.2s ease;

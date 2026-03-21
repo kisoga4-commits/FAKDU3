@@ -181,12 +181,13 @@
 
                 <div id="dash-history">
                     <div class="bg-blue-50 p-3 rounded-2xl border border-blue-100 mb-4" id="custom-search-area">
-                        <div class="text-[10px] text-blue-800 font-bold mb-2">ค้นหายอดขาย (อัปเดตอัตโนมัติ)</div>
+                        <div class="text-[10px] text-blue-800 font-bold mb-2">ค้นหายอดเงิน (อัปเดตอัตโนมัติ)</div>
                         <div class="flex gap-2 mb-2">
                             <input type="date" id="search-start" class="w-full text-xs font-bold p-2 rounded-lg border outline-none text-gray-600 bg-white" onchange="calculateCustomSalesRealtime()">
                             <input type="date" id="search-end" class="w-full text-xs font-bold p-2 rounded-lg border outline-none text-gray-600 bg-white" onchange="calculateCustomSalesRealtime()">
                         </div>
-                        <div class="text-center text-[10px] font-bold text-gray-500 bg-white p-2 rounded-lg border">ยอดรวมที่เลือก: <span class="font-black text-xl text-blue-700 tracking-tighter ml-1">฿<span id="search-total">0</span></span></div>
+                        <div id="search-pro-lock-note" class="hidden text-[10px] text-amber-700 font-bold mb-2">รุ่นทดลองล็อคช่วงวันไว้เฉพาะวันนี้ • เลือกช่วงวันได้ในรุ่น Pro</div>
+                        <div class="text-center text-[10px] font-bold text-gray-500 bg-white p-2 rounded-lg border">ยอดเงินที่เลือก: <span class="font-black text-xl text-blue-700 tracking-tighter ml-1">฿<span id="search-total">0</span></span></div>
                     </div>
                     <div id="sales-history" class="divide-y text-xs space-y-3 max-h-60 overflow-y-auto pr-2"></div>
                     <button onclick="clearSales()" class="w-full mt-4 bg-red-50 text-red-600 py-3 rounded-xl font-black text-xs active:scale-95 transition-transform border border-red-100">🗑️ รีเซ็ตยอดขาย</button>
@@ -593,7 +594,7 @@
             <div class="bg-gray-50 border rounded-[24px] p-4 mb-4">
                 <div class="text-center mb-3">
                     <div class="text-[10px] uppercase font-black text-blue-500 mb-1">กรอก PIN เครื่องใหม่</div>
-                    <input id="manual-pin" type="text" inputmode="numeric" placeholder="559038" class="w-full border-2 p-4 rounded-2xl text-center text-3xl font-mono font-black tracking-[8px] bg-white outline-none focus:border-primary uppercase">
+                    <input id="manual-pin" type="text" inputmode="numeric" placeholder="กรอก PIN 6 หลัก" class="w-full border-2 p-4 rounded-2xl text-center text-3xl font-mono font-black tracking-[8px] bg-white outline-none focus:border-primary uppercase">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">

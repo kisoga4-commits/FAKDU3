@@ -49,7 +49,7 @@
       animal: ''
     },
     sync: {
-      key: '559038',
+      key: '',
       keyResetDate: '',
       keyResetCount: 0,
       clients: [],
@@ -197,6 +197,12 @@
     const base = `${state.db.shopName || 'FAKDU'}-${state.hwid || 'DEVICE'}`;
     return `SHOP-${hashLike(base).slice(0, 8)}`;
   }
+  function generateSyncKey(seed = '') {
+    const entropy = `${seed}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const numeric = hashLike(entropy).replace(/\D/g, '');
+    const base = numeric.slice(0, 6).padEnd(6, '7');
+    return base.slice(0, 6);
+  }
   function getClientStatus(client) {
     if (!client) return 'offline';
     const lastSeen = Number(client.lastSeen || 0);
@@ -337,6 +343,9 @@
     merged.opLog = Array.isArray(raw?.opLog) ? raw.opLog : [];
     merged.fraudLogs = Array.isArray(raw?.fraudLogs) ? raw.fraudLogs : [];
     if (!merged.shopId) merged.shopId = makeShopId();
+    if (!merged.sync.key || merged.sync.key === '559038') {
+      merged.sync.key = generateSyncKey(merged.shopId || merged.shopName || 'FAKDU');
+    }
     return merged;
   }
   //* normalize close
@@ -552,7 +561,8 @@
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
     if (cart.length > 0) return 'unit-card-draft-warning border-amber-300';
-    if (unit.checkoutRequested || unit.orders.length > 0) return 'bg-emerald-50 border-emerald-300';
+    if (unit.orders.length > 0) return 'unit-card-active border-emerald-300';
+    if (unit.checkoutRequested) return 'bg-emerald-50 border-emerald-300';
     return 'bg-white border-gray-200';
   }
 
@@ -560,7 +570,7 @@
     const cart = state.db.carts[unit.id] || [];
     if (cart.length > 0) return { cls: 'status-draft', label: 'มีค้างส่ง' };
     if (unit.checkoutRequested) return { cls: 'status-checkout', label: 'รอเช็คบิล' };
-    if (unit.orders.length > 0) return { cls: 'status-active', label: 'กำลังใช้งาน' };
+    if (unit.orders.length > 0) return { cls: 'status-active', label: 'ใช้งานอยู่' };
     return { cls: 'status-idle', label: 'ว่าง' };
   }
 
@@ -596,7 +606,7 @@
         : unit.checkoutRequested
         ? 'รอเช็คบิล'
         : unit.orders.length > 0
-          ? '🟢 กำลังใช้งาน'
+          ? ''
           : 'ว่าง';
       const statusPillClass = cart.length > 0
         ? 'bg-amber-100 text-amber-700'
@@ -619,7 +629,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>
+              ${statusText ? `<div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>` : ''}
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -1148,8 +1158,49 @@
     return { today, week, month, itemCounts };
   }
 
+  function getSearchDateRange() {
+    const today = getLocalYYYYMMDD();
+    const startInput = qs('search-start');
+    const endInput = qs('search-end');
+    let start = startInput?.value || '';
+    let end = endInput?.value || '';
+    if (!state.isPro) {
+      start = today;
+      end = today;
+      if (startInput) startInput.value = today;
+      if (endInput) endInput.value = today;
+    } else if (!start && !end) {
+      start = today;
+      end = today;
+      if (startInput) startInput.value = today;
+      if (endInput) endInput.value = today;
+    } else {
+      start = start || end;
+      end = end || start;
+      if (start > end) [start, end] = [end, start];
+      if (startInput) startInput.value = start;
+      if (endInput) endInput.value = end;
+    }
+    return { start, end };
+  }
+
+  function getSalesBySelectedRange() {
+    const { start, end } = getSearchDateRange();
+    return state.db.sales.filter((sale) => sale.date >= start && sale.date <= end);
+  }
+
+  function syncCustomSearchUiMode() {
+    const startInput = qs('search-start');
+    const endInput = qs('search-end');
+    const proLockNote = qs('search-pro-lock-note');
+    const locked = !state.isPro;
+    if (startInput) startInput.disabled = locked;
+    if (endInput) endInput.disabled = locked;
+    if (proLockNote) proLockNote.classList.toggle('hidden', !locked);
+  }
+
   function renderAnalytics() {
-    const { today, week, month, itemCounts } = calculateSalesBuckets();
+    const { today, week, month } = calculateSalesBuckets();
     if (qs('stat-today')) qs('stat-today').textContent = formatMoney(today);
     if (qs('stat-week')) qs('stat-week').textContent = formatMoney(week);
     if (qs('stat-month')) qs('stat-month').textContent = formatMoney(month);
@@ -1160,12 +1211,24 @@
     if (qs('stat-cash-total')) qs('stat-cash-total').textContent = formatMoney(cashTotal);
     if (qs('stat-transfer-total')) qs('stat-transfer-total').textContent = formatMoney(transferTotal);
 
+    const filteredSales = getSalesBySelectedRange();
+    const filteredItemCounts = {};
+    let filteredAmount = 0;
+    filteredSales.forEach((sale) => {
+      filteredAmount += Number(sale.total || 0);
+      (sale.items || []).forEach((row) => {
+        const base = row.baseName || (row.name || '').split(' (')[0] || 'ไม่ระบุ';
+        filteredItemCounts[base] = (filteredItemCounts[base] || 0) + Number(row.qty || 0);
+      });
+    });
+    if (qs('search-total')) qs('search-total').textContent = formatMoney(filteredAmount);
+
     const history = qs('sales-history');
     if (history) {
-      if (!state.db.sales.length) {
+      if (!filteredSales.length) {
         history.innerHTML = '<div class="py-8 text-center text-gray-400 font-bold">ยังไม่มีประวัติยอดขาย</div>';
       } else {
-        history.innerHTML = [...state.db.sales].reverse().slice(0, 60).map((sale) => `
+        history.innerHTML = [...filteredSales].reverse().slice(0, 60).map((sale) => `
           <div class="py-3 flex justify-between gap-3">
             <div class="min-w-0 flex-1">
               <div class="font-black text-gray-800">${sale.date} <span class="text-gray-400 ml-1">${sale.time}</span></div>
@@ -1182,7 +1245,7 @@
 
     const topBox = qs('top-items-list');
     if (topBox) {
-      const top = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const top = Object.entries(filteredItemCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
       const topDisplay = state.isPro ? top : top.slice(0, TRIAL_LIMITS.topBasicMax);
       if (!topDisplay.length) {
         topBox.innerHTML = '<div class="py-8 text-center text-gray-400 font-bold">ยังไม่มียอดฮิต</div>';
@@ -1196,33 +1259,11 @@
       }
     }
 
-    calculateCustomSalesRealtime();
   }
 
   function calculateCustomSalesRealtime() {
-    const start = qs('search-start')?.value || '';
-    const end = qs('search-end')?.value || '';
-    if (!start && !end) {
-      if (qs('search-total')) qs('search-total').textContent = formatMoney(0);
-      return;
-    }
-
-    let rangeStart = start || end;
-    let rangeEnd = end || start;
-    if (rangeStart > rangeEnd) [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
-
-    if (qs('search-start')) qs('search-start').value = rangeStart;
-    if (qs('search-end')) qs('search-end').value = rangeEnd;
-
-    const summary = state.db.sales.reduce((acc, sale) => {
-      if (sale.date < rangeStart || sale.date > rangeEnd) return acc;
-      const amount = Number(sale.total || 0);
-      if (isTransferMethod(sale.method)) acc.transfer += amount;
-      else acc.cash += amount;
-      return acc;
-    }, { cash: 0, transfer: 0 });
-
-    if (qs('search-total')) qs('search-total').textContent = formatMoney(summary.cash + summary.transfer);
+    getSearchDateRange();
+    renderAnalytics();
   }
 
   function clearSales() {
@@ -1557,6 +1598,7 @@
     } else {
       state.isPro = Boolean(state.db.licenseActive || state.db.licenseToken);
     }
+    syncCustomSearchUiMode();
   }
 
   async function validateProKey() {
@@ -1996,14 +2038,13 @@
       return;
     }
     try {
-      if (state.qrScanner) {
-        await state.qrScanner.stop().catch(() => {});
-        await state.qrScanner.clear().catch(() => {});
-      }
+      if (state.qrScanner) await closeClientScanner(true);
       state.qrScanner = new Html5Qrcode('qr-reader-index');
+      const cameras = await Html5Qrcode.getCameras().catch(() => []);
+      const preferredCamera = cameras.find((cam) => /back|rear|environment/i.test(cam.label || ''))?.id || cameras[0]?.id || { facingMode: 'environment' };
       await state.qrScanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
+        preferredCamera,
+        { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 },
         (decodedText) => {
           try {
             const data = JSON.parse(decodedText);
@@ -2022,15 +2063,15 @@
     }
   }
 
-  async function closeClientScanner() {
+  async function closeClientScanner(keepModal = false) {
     try {
       if (state.qrScanner) {
-        await state.qrScanner.stop().catch(() => {});
+        if (state.qrScanner.isScanning) await state.qrScanner.stop().catch(() => {});
         await state.qrScanner.clear().catch(() => {});
       }
     } finally {
       state.qrScanner = null;
-      closeModal('modal-client-scanner');
+      if (!keepModal) closeModal('modal-client-scanner');
     }
   }
 
@@ -2114,11 +2155,12 @@
       applyTheme();
       updateSyncUi();
       updateMasterConnectionUi();
+      syncCustomSearchUiMode();
       renderAll();
       const today = getLocalYYYYMMDD();
       if (qs('search-start')) qs('search-start').value = today;
       if (qs('search-end')) qs('search-end').value = today;
-      calculateCustomSalesRealtime();
+      renderAnalytics();
       startLiveTimers();
       switchTab('customer', qs('tab-customer'));
       showToast('FAKDU พร้อมใช้งาน', 'success');

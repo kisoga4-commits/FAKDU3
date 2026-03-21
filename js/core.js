@@ -657,9 +657,9 @@ function getUnitCardClass(unit) {
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return { cls: 'status-draft', label: 'ออเดอร์ค้าง' };
-    if (unit.checkoutRequested) return { cls: 'status-active', label: 'กำลังใช้งาน' };
-    if (unit.orders.length > 0) return { cls: 'status-active', label: 'กำลังใช้งาน' };
+    if (cart.length > 0) return { cls: 'status-draft', label: '' };
+    if (unit.checkoutRequested) return { cls: 'status-active', label: '' };
+    if (unit.orders.length > 0) return { cls: 'status-active', label: '' };
     return { cls: 'status-idle', label: 'ว่าง' };
   }
 
@@ -710,7 +710,7 @@ function getUnitCardClass(unit) {
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>
+              ${statusText ? `<div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>` : ''}
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>

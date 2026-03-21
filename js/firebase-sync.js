@@ -33,6 +33,17 @@
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
         const safeVersion = Number(meta.syncVersion || 1);
+        const safeClientSessions = (meta.clientSessions && typeof meta.clientSessions === 'object')
+          ? Object.entries(meta.clientSessions).reduce((acc, [clientId, session]) => {
+            if (!clientId || !session || typeof session !== 'object') return acc;
+            acc[clientId] = {
+              clientSessionToken: session.clientSessionToken || '',
+              sessionSyncVersion: Number(session.sessionSyncVersion || safeVersion),
+              approvedAt: Number(session.approvedAt || Date.now())
+            };
+            return acc;
+          }, {})
+          : {};
         const payload = {
           shopId,
           shopName: meta.shopName || 'FAKDU',
@@ -40,6 +51,7 @@
           currentSyncPin: meta.currentSyncPin || '',
           syncVersion: safeVersion,
           approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
+          clientSessions: safeClientSessions,
           updatedAt: Date.now()
         };
         await db.ref(`${shopRoot(shopId)}/master`).set(payload);
@@ -96,6 +108,11 @@
           ...snapshot,
           updatedAt: Date.now()
         });
+      },
+      async readSnapshot(shopId = '') {
+        if (!shopId) return null;
+        const snap = await db.ref(`${shopRoot(shopId)}/snapshot`).get();
+        return snap.exists() ? snap.val() : null;
       }
     };
   }

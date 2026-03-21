@@ -17,6 +17,7 @@
   const KEY_CLIENT_LAST_SYNC = 'client_last_sync';
   const KEY_DRAFTS = 'drafts';
   const KEY_SETTINGS_CACHE = 'settings_cache';
+  const KEY_MENU_IMAGE_CACHE_PREFIX = 'menu_image_cache:';
 
   const META_DEVICE_ID = 'device_install_id';
   const META_CREATED_AT = 'created_at';
@@ -434,6 +435,18 @@
     await kvSet(KEY_SETTINGS_CACHE, isObject(payload) ? jsonClone(payload) : {});
     return true;
   }
+
+  async function loadMenuImageCache(shopId = '') {
+    const key = `${KEY_MENU_IMAGE_CACHE_PREFIX}${shopId || 'default'}`;
+    const raw = await kvGet(key);
+    return isObject(raw) ? jsonClone(raw) : {};
+  }
+
+  async function saveMenuImageCache(shopId = '', cache = {}) {
+    const key = `${KEY_MENU_IMAGE_CACHE_PREFIX}${shopId || 'default'}`;
+    await kvSet(key, isObject(cache) ? jsonClone(cache) : {});
+    return true;
+  }
   //* cache helpers close
 
   //* backup open
@@ -578,6 +591,8 @@
 
     loadSettingsCache,
     saveSettingsCache,
+    loadMenuImageCache,
+    saveMenuImageCache,
 
     requestPersistentStorage,
     estimateStorage,

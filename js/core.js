@@ -9,6 +9,7 @@
   const LS_PENDING_SYNC_VERSION = 'FAKDU_PENDING_SYNC_VERSION';
   const LS_CLIENT_OP_QUEUE = 'FAKDU_CLIENT_OP_QUEUE';
   const LS_FORCE_CLIENT_MODE = 'FAKDU_FORCE_CLIENT_MODE';
+  const LS_MENU_IMAGE_CACHE_PREFIX = 'FAKDU_MENU_IMAGE_CACHE_';
   const HEARTBEAT_INTERVAL_MS = 5000;
   const CLIENT_AVATAR_MAX_BYTES = 1.5 * 1024 * 1024;
   const COLOR_MAP = {
@@ -267,6 +268,46 @@
     return `SESS-${hashLike(payload).padEnd(16, '0').slice(0, 16)}`;
   }
 
+  function normalizeMenuItemForCloud(item = {}) {
+    return {
+      id: item.id || `ITM-${Date.now()}`,
+      name: item.name || '-',
+      price: Number(item.price || 0),
+      addons: Array.isArray(item.addons) ? clone(item.addons) : [],
+      hasImage: Boolean(item.img),
+      imageVersion: Number(item.imageVersion || 0)
+    };
+  }
+
+  function makeCloudSnapshotPayload() {
+    return {
+      shopId: state.db.shopId,
+      masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
+      shopName: state.db.shopName,
+      theme: state.db.theme,
+      bgColor: state.db.bgColor,
+      logo: state.db.logo,
+      unitType: state.db.unitType,
+      unitCount: state.db.unitCount,
+      menuMetadata: state.db.items.map((item) => normalizeMenuItemForCloud(item)),
+      units: state.db.units,
+      carts: state.db.carts,
+      sales: state.db.sales,
+      settings: {
+        bank: state.db.bank || '',
+        ppay: state.db.ppay || '',
+        qrOffline: state.db.qrOffline || '',
+        soundEnabled: Boolean(state.db.soundEnabled)
+      },
+      syncSession: {
+        syncVersion: Number(state.db.sync.syncVersion || 1),
+        currentSyncPin: state.db.sync.currentSyncPin || '',
+        approvedClients: state.db.sync.approvedClients || []
+      },
+      at: Date.now()
+    };
+  }
+
   function makeSyncMessageId() {
     return `MSG-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
   }
@@ -410,6 +451,8 @@
       name: item.name || '',
       price: Number(item.price || 0),
       img: item.img || '',
+      hasImage: Boolean(item.hasImage || item.img),
+      imageVersion: Number(item.imageVersion || (item.img ? Date.now() : 0)),
       addons: Array.isArray(item.addons) ? item.addons.map((addon) => ({
         name: addon.name || '',
         price: Number(addon.price || 0)
@@ -473,6 +516,9 @@
     state.db.opLog.push(entry);
     if (state.db.opLog.length > 400) state.db.opLog = state.db.opLog.slice(-400);
     const writeTypes = new Set([
+      'CREATE_MENU_ITEM',
+      'UPDATE_MENU_ITEM',
+      'DELETE_MENU_ITEM',
       'SEND_ORDER',
       'CLIENT_APPEND_ORDER',
       'CLIENT_APPEND_ORDER_REQUEST',
@@ -1545,20 +1591,27 @@ function getUnitCardClass(unit) {
     if (id) {
       const target = state.db.items.find((row) => String(row.id) === String(id));
       if (!target) return showToast('ไม่พบเมนูที่ต้องการแก้', 'error');
+      const originalImage = target.img || '';
       target.name = name;
       target.price = price;
       target.addons = addons;
       if (state.tempImg) target.img = state.tempImg;
+      target.hasImage = Boolean(target.img);
+      if ((target.img || '') !== originalImage) target.imageVersion = Date.now();
+      else target.imageVersion = Number(target.imageVersion || 0);
       logOperation('UPDATE_MENU_ITEM', { itemId: target.id });
     } else {
       if (!state.isPro && state.db.items.length >= TRIAL_LIMITS.menuMax) {
         return showToast(`รุ่นทดลองเพิ่มเมนูได้สูงสุด ${TRIAL_LIMITS.menuMax} รายการ`, 'error');
       }
+      const imageVersion = state.tempImg ? Date.now() : 0;
       state.db.items.push({
         id: `ITM-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name,
         price,
         img: state.tempImg || '',
+        hasImage: Boolean(state.tempImg),
+        imageVersion,
         addons
       });
       logOperation('CREATE_MENU_ITEM', { name, price });
@@ -1847,6 +1900,8 @@ function getUnitCardClass(unit) {
     if (msg.type === 'MASTER_APPROVAL') handleMasterApproval(msg.payload);
     if (msg.type === 'MASTER_ACTION_ACK') handleMasterActionAck(msg.payload);
     if (msg.type === 'MASTER_SYNC_ROTATED') handleMasterSyncRotated(msg.payload);
+    if (msg.type === 'CLIENT_IMAGE_SYNC_REQUEST') handleClientImageSyncRequest(msg.payload);
+    if (msg.type === 'MASTER_MENU_IMAGES') handleMasterMenuImages(msg.payload);
   }
 
   async function emitSyncMessage(msg = {}, { withFirebase = true } = {}) {
@@ -1968,24 +2023,7 @@ function getUnitCardClass(unit) {
 
   function broadcastSnapshot() {
     try {
-      const payload = {
-        shopId: state.db.shopId,
-        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
-        shopName: state.db.shopName,
-        theme: state.db.theme,
-        bgColor: state.db.bgColor,
-        logo: state.db.logo,
-        unitType: state.db.unitType,
-        unitCount: state.db.unitCount,
-        items: state.db.items,
-        units: state.db.units,
-        salesCount: state.db.sales.length,
-        syncPin: state.db.sync.currentSyncPin,
-        syncVersion: Number(state.db.sync.syncVersion || 1),
-        approvedClients: state.db.sync.approvedClients || [],
-        clientSession: null,
-        at: Date.now()
-      };
+      const payload = makeCloudSnapshotPayload();
       emitSyncMessage({
         type: 'MASTER_SNAPSHOT',
         payload
@@ -2021,10 +2059,43 @@ function getUnitCardClass(unit) {
       state.db.sync.key = payload.syncPin;
     }
     if (Array.isArray(payload.approvedClients)) state.db.sync.approvedClients = payload.approvedClients;
-    if (Array.isArray(payload.items)) state.db.items = payload.items;
+    if (payload.syncSession && typeof payload.syncSession === 'object') {
+      state.db.sync.syncVersion = Number(payload.syncSession.syncVersion || state.db.sync.syncVersion || 1);
+      state.db.sync.currentSyncPin = payload.syncSession.currentSyncPin || state.db.sync.currentSyncPin;
+      state.db.sync.key = state.db.sync.currentSyncPin;
+      if (Array.isArray(payload.syncSession.approvedClients)) {
+        state.db.sync.approvedClients = payload.syncSession.approvedClients;
+      }
+    }
+    if (Array.isArray(payload.menuMetadata)) {
+      const currentMap = new Map(state.db.items.map((item) => [item.id, item]));
+      state.db.items = payload.menuMetadata.map((item) => {
+        const existing = currentMap.get(item.id) || {};
+        return {
+          id: item.id,
+          name: item.name,
+          price: Number(item.price || 0),
+          addons: Array.isArray(item.addons) ? item.addons : [],
+          imageVersion: Number(item.imageVersion || 0),
+          hasImage: Boolean(item.hasImage),
+          img: existing.img || ''
+        };
+      });
+      requestMissingMenuImages();
+    } else if (Array.isArray(payload.items)) {
+      state.db.items = payload.items;
+    }
     if (Array.isArray(payload.units)) {
       state.db.units = payload.units.map((unit, index) => normalizeUnit(unit, index + 1));
       state.db.unitCount = state.db.units.length;
+    }
+    if (payload.carts && typeof payload.carts === 'object') state.db.carts = payload.carts;
+    if (Array.isArray(payload.sales)) state.db.sales = payload.sales;
+    if (payload.settings && typeof payload.settings === 'object') {
+      state.db.bank = payload.settings.bank || state.db.bank;
+      state.db.ppay = payload.settings.ppay || state.db.ppay;
+      state.db.qrOffline = payload.settings.qrOffline || state.db.qrOffline;
+      state.db.soundEnabled = Boolean(payload.settings.soundEnabled);
     }
     saveDb({ render: true, sync: false });
   }
@@ -2070,7 +2141,10 @@ function getUnitCardClass(unit) {
         clientSessionToken: sessionPayload.clientSessionToken || '',
         syncVersion: Number(sessionPayload.syncVersion || 1)
       };
-      if (sessionPayload.shopId) await pullSnapshotFromCloud(sessionPayload.shopId);
+      if (sessionPayload.shopId) {
+        await pullSnapshotFromCloud(sessionPayload.shopId);
+        await requestMissingMenuImages();
+      }
       localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       await clearClientOpQueue();
       flushClientOpQueue();
@@ -2163,6 +2237,90 @@ function getUnitCardClass(unit) {
       return window.FakduDB;
     }
     return null;
+  }
+
+  async function loadMenuImageCache() {
+    const key = `${LS_MENU_IMAGE_CACHE_PREFIX}${state.db.shopId || 'DEFAULT'}`;
+    const dbApi = resolveDbApi();
+    if (dbApi && typeof dbApi.loadMenuImageCache === 'function') {
+      try {
+        return await dbApi.loadMenuImageCache(state.db.shopId || 'DEFAULT');
+      } catch (_) {}
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  async function saveMenuImageCache(cache = {}) {
+    const safeCache = cache && typeof cache === 'object' ? cache : {};
+    const key = `${LS_MENU_IMAGE_CACHE_PREFIX}${state.db.shopId || 'DEFAULT'}`;
+    const dbApi = resolveDbApi();
+    if (dbApi && typeof dbApi.saveMenuImageCache === 'function') {
+      try {
+        await dbApi.saveMenuImageCache(state.db.shopId || 'DEFAULT', safeCache);
+      } catch (_) {}
+    }
+    localStorage.setItem(key, JSON.stringify(safeCache));
+  }
+
+  async function applyMenuImagesFromPayload(payload = {}) {
+    if (!IS_CLIENT_NODE || !Array.isArray(payload.items)) return;
+    const cache = await loadMenuImageCache();
+    payload.items.forEach((item) => {
+      if (!item?.id || !item?.img) return;
+      cache[item.id] = {
+        img: item.img,
+        imageVersion: Number(item.imageVersion || Date.now())
+      };
+    });
+    await saveMenuImageCache(cache);
+    state.db.items = state.db.items.map((item) => {
+      const fromCache = cache[item.id];
+      if (!fromCache) return item;
+      if (Number(fromCache.imageVersion || 0) < Number(item.imageVersion || 0)) return item;
+      return {
+        ...item,
+        img: fromCache.img || '',
+        imageVersion: Number(item.imageVersion || fromCache.imageVersion || 0),
+        hasImage: Boolean(fromCache.img)
+      };
+    });
+    saveDb({ render: true, sync: false });
+  }
+
+  async function requestMenuImagesFromMaster(itemIds = []) {
+    if (!IS_CLIENT_NODE || !isClientSessionValid()) return;
+    const session = getStoredClientSession();
+    if (!session?.clientSessionToken) return;
+    emitSyncMessage({
+      type: 'CLIENT_IMAGE_SYNC_REQUEST',
+      payload: {
+        shopId: session.shopId,
+        clientId: session.clientId,
+        clientSessionToken: session.clientSessionToken,
+        syncVersion: Number(session.syncVersion || 1),
+        itemIds: Array.isArray(itemIds) ? itemIds : []
+      }
+    });
+  }
+
+  async function requestMissingMenuImages() {
+    if (!IS_CLIENT_NODE || !isClientSessionValid()) return;
+    const cache = await loadMenuImageCache();
+    const missing = state.db.items
+      .filter((item) => item.hasImage)
+      .filter((item) => {
+        const cached = cache[item.id];
+        if (!cached?.img) return true;
+        return Number(cached.imageVersion || 0) < Number(item.imageVersion || 0);
+      })
+      .map((item) => item.id);
+    if (missing.length) requestMenuImagesFromMaster(missing);
   }
 
   async function loadClientOpQueue() {
@@ -2442,6 +2600,42 @@ function getUnitCardClass(unit) {
     }
   }
 
+  function handleClientImageSyncRequest(payload) {
+    if (IS_CLIENT_NODE || !payload?.clientId || !payload?.clientSessionToken) return;
+    const client = state.db.sync.clients.find((row) => row.clientId === payload.clientId);
+    if (!client || !client.approved) return;
+    if (String(client.clientSessionToken || '') !== String(payload.clientSessionToken || '')) return;
+    if (Number(client.sessionSyncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) return;
+    const requestedIds = Array.isArray(payload.itemIds) ? new Set(payload.itemIds) : null;
+    const items = state.db.items
+      .filter((item) => item.img && (!requestedIds || requestedIds.has(item.id)))
+      .map((item) => ({
+        id: item.id,
+        imageVersion: Number(item.imageVersion || 0),
+        img: item.img
+      }));
+    emitSyncMessage({
+      type: 'MASTER_MENU_IMAGES',
+      payload: {
+        shopId: state.db.shopId,
+        syncVersion: Number(state.db.sync.syncVersion || 1),
+        targetClientId: client.clientId,
+        items
+      }
+    });
+  }
+
+  function handleMasterMenuImages(payload) {
+    if (!IS_CLIENT_NODE || !payload?.shopId) return;
+    const profile = getClientProfile();
+    if (payload.targetClientId && payload.targetClientId !== profile.clientId) return;
+    if (String(payload.shopId || '') !== String(state.db.shopId || '')) return;
+    const session = getStoredClientSession();
+    if (!session?.clientSessionToken) return;
+    if (Number(payload.syncVersion || 0) !== Number(session.syncVersion || 0)) return;
+    applyMenuImagesFromPayload(payload);
+  }
+
   function renderClientApprovalList() {
     const box = qs('client-approval-list');
     const count = qs('client-approval-count');
@@ -2538,6 +2732,21 @@ function getUnitCardClass(unit) {
           syncVersion: state.db.sync.syncVersion,
           clientSessionToken: client.clientSessionToken,
           profileName: client.profileName || client.name || clientId
+        }
+      });
+      emitSyncMessage({
+        type: 'MASTER_MENU_IMAGES',
+        payload: {
+          shopId: state.db.shopId,
+          syncVersion: Number(state.db.sync.syncVersion || 1),
+          targetClientId: clientId,
+          items: state.db.items
+            .filter((item) => item.img)
+            .map((item) => ({
+              id: item.id,
+              imageVersion: Number(item.imageVersion || 0),
+              img: item.img
+            }))
         }
       });
     } catch (_) {}
@@ -2807,7 +3016,8 @@ function getUnitCardClass(unit) {
         let timeoutId = null;
         const stop = api.listenClient(pendingShopId, profile.clientId, (payload) => {
           if (!payload) return;
-          if (!payload.approved) return reject(new Error('rejected'));
+          if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
+          if (!payload.approved) return;
           const approvedVersion = Number(payload.sessionSyncVersion || payload.syncVersion || 0);
           if (serverVersion > 0 && approvedVersion > 0 && approvedVersion !== serverVersion) return;
           if (!payload.clientSessionToken) return;
@@ -3024,6 +3234,7 @@ function getUnitCardClass(unit) {
                 await invalidateClientSession('session หมดอายุ กรุณาเชื่อมใหม่');
               } else {
                 await pullSnapshotFromCloud(state.db.shopId);
+                await requestMissingMenuImages();
               }
             } catch (_) {}
           }

@@ -92,6 +92,7 @@
     hwid: '',
     isPro: false
   };
+  const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '');
   //* constants close
 
   //* adapter open
@@ -162,6 +163,13 @@
   }
   function getUnitLabel(id) {
     return `${state.db.unitType || 'โต๊ะ'} ${id}`;
+  }
+  function getActorLabel() {
+    if (IS_CLIENT_NODE) return 'client';
+    return state.isAdminLoggedIn ? 'admin' : 'master';
+  }
+  function canManageOrders() {
+    return !IS_CLIENT_NODE && state.isAdminLoggedIn;
   }
   function formatDurationFrom(startTs) {
     if (!startTs) return 'ยังไม่เริ่มจับเวลา';
@@ -340,7 +348,10 @@
     state.db.opLog.push({
       id: `OP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type,
-      payload,
+      payload: {
+        ...payload,
+        actor: getActorLabel()
+      },
       at: Date.now()
     });
     if (state.db.opLog.length > 400) state.db.opLog = state.db.opLog.slice(-400);
@@ -848,6 +859,17 @@
       const hasDraft = cart.length > 0;
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
       const draftTotal = cart.reduce((sum, row) => sum + row.total, 0);
+      const checkoutActionLabel = hasDraft
+        ? 'ไปส่งออร์เดอร์'
+        : IS_CLIENT_NODE
+          ? 'ดูสถานะ'
+          : 'เปิดบิล';
+      const checkoutAction = hasDraft ? `openTable(${unit.id})` : `openCheckout(${unit.id})`;
+      const checkoutRequestBtn = hasDraft
+        ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 opacity-60 pointer-events-none">ขอเช็คบิล</button>`
+        : IS_CLIENT_NODE
+          ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
+          : '';
       return `
         <div class="bg-white p-4 rounded-[24px] border shadow-sm relative ${hasDraft ? 'draft-warning-card border-amber-300' : unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
@@ -863,8 +885,8 @@
           </div>
           <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${hasDraft ? cart.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ') : unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
           <div class="flex gap-2">
-            <button onclick="${hasDraft ? `openTable(${unit.id})` : `openCheckout(${unit.id})`}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${hasDraft ? 'ไปส่งออร์เดอร์' : 'เปิดบิล'}</button>
-            <button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${hasDraft ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ยกเลิกขอเช็ค' : 'ขอเช็คบิล'}</button>
+            <button onclick="${checkoutAction}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${checkoutActionLabel}</button>
+            ${checkoutRequestBtn}
           </div>
         </div>
       `;
@@ -874,9 +896,21 @@
   function markCheckoutRequest(unitId) {
     const unit = state.db.units.find((row) => row.id === Number(unitId));
     if (!unit) return;
+    if (IS_CLIENT_NODE && unit.checkoutRequested) {
+      showToast('ส่งคำขอเช็คบิลแล้ว รอเครื่องแม่ดำเนินการ', 'click');
+      return;
+    }
+    if (!IS_CLIENT_NODE && unit.checkoutRequested && !canManageOrders()) {
+      showToast('ต้องเข้าโหมดแอดมินก่อนจึงยกเลิกคำขอเช็คบิลได้', 'error');
+      return;
+    }
     unit.checkoutRequested = !unit.checkoutRequested;
     unit.checkoutRequestedAt = unit.checkoutRequested ? Date.now() : null;
-    logOperation('CHECKOUT_REQUEST_TOGGLE', { unitId, value: unit.checkoutRequested });
+    logOperation('CHECKOUT_REQUEST_TOGGLE', {
+      unitId,
+      unitLabel: getUnitLabel(unit.id),
+      value: unit.checkoutRequested
+    });
     saveDb({ render: true, sync: true });
   }
 
@@ -901,13 +935,15 @@
           <div class="flex items-center gap-2 shrink-0">
             <div class="font-black">x${row.qty}</div>
             <div class="font-black w-16 text-right">฿${formatMoney(row.total)}</div>
-            <button onclick="deleteOrderItem(${index})" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 font-black">×</button>
+            ${canManageOrders() ? `<button onclick="deleteOrderItem(${index})" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 font-black">×</button>` : ''}
           </div>
         </div>
       `).join('');
     }
     updateQrDisplay();
     openModal('modal-checkout');
+    const paymentButtons = qs('checkout-payment-buttons');
+    if (paymentButtons) paymentButtons.classList.toggle('hidden', IS_CLIENT_NODE);
     renderShopQueue();
   }
 
@@ -942,11 +978,20 @@
   }
 
   function deleteOrderItem(index) {
+    if (!canManageOrders()) {
+      showToast('เฉพาะเครื่องแม่ที่เข้าโหมดแอดมินเท่านั้นที่ลบออร์เดอร์ได้', 'error');
+      return;
+    }
     const unit = state.db.units.find((row) => row.id === Number(state.activeUnitId));
     if (!unit) return;
     const removed = unit.orders.splice(index, 1);
     if (removed.length) {
-      logOperation('DELETE_ORDER_ITEM', { unitId: unit.id, item: removed[0] });
+      logOperation('DELETE_ORDER_ITEM', {
+        unitId: unit.id,
+        unitLabel: getUnitLabel(unit.id),
+        deletedAt: Date.now(),
+        item: removed[0]
+      });
     }
     if (!unit.orders.length) {
       unit.status = 'idle';
@@ -966,6 +1011,10 @@
   }
 
   function confirmPayment(method) {
+    if (IS_CLIENT_NODE) {
+      showToast('เครื่องลูกดูสถานะบิลได้อย่างเดียว ให้ปิดบิลที่เครื่องแม่', 'error');
+      return;
+    }
     const unit = state.db.units.find((row) => row.id === Number(state.activeUnitId));
     if (!unit || !unit.orders.length) return;
     const total = unit.orders.reduce((sum, row) => sum + row.total, 0);

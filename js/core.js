@@ -100,6 +100,9 @@
     syncButtonResetTimer: null,
     syncChannel: null,
     syncPollTimer: null,
+    firebaseSyncApi: null,
+    stopFirebaseListener: null,
+    processedSyncMessages: new Set(),
     clientQueueFlushTimer: null,
     liveTick: null,
     autoSaveTimer: null,
@@ -253,6 +256,24 @@
   function issueClientSessionToken({ shopId, clientId, syncVersion }) {
     const payload = `${shopId}|${clientId}|${syncVersion}|${Date.now()}|${Math.random().toString(36).slice(2, 10)}`;
     return `SESS-${hashLike(payload).padEnd(16, '0').slice(0, 16)}`;
+  }
+
+  function makeSyncMessageId() {
+    return `MSG-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+  }
+  function resolveFirebaseSyncApi() {
+    if (state.firebaseSyncApi) return state.firebaseSyncApi;
+    const factory = window.FakduFirebaseSync && typeof window.FakduFirebaseSync.resolveApi === 'function'
+      ? window.FakduFirebaseSync.resolveApi
+      : null;
+    if (!factory) return null;
+    try {
+      state.firebaseSyncApi = factory();
+      return state.firebaseSyncApi;
+    } catch (error) {
+      console.warn('Firebase sync unavailable', error);
+      return null;
+    }
   }
   function getClientStatus(client) {
     if (!client) return 'offline';
@@ -413,6 +434,7 @@
       const dbApi = resolveDbApi();
       await dbApi.save(state.db);
       if (render) renderAll();
+      if (!IS_CLIENT_NODE) syncMasterMetaToFirebase();
       if (sync) broadcastSnapshot();
     }, 30);
   }
@@ -632,7 +654,6 @@ function getUnitCardClass(unit) {
   if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
   return 'unit-card--idle';
 }
- main
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
@@ -669,11 +690,7 @@ function getUnitCardClass(unit) {
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusMeta = getUnitStatusMeta(unit);
- codex/remove-notifications-and-fix-pin-access-f1rtk5
-      const statusText = statusMeta.cls === 'status-idle' ? 'ว่าง' : '';
-
       const statusText = statusMeta.label;
- main
       const statusPillClass = statusMeta.cls === 'status-draft'
         ? 'bg-amber-100 text-amber-700'
         : statusMeta.cls === 'status-active'
@@ -1777,25 +1794,94 @@ function getUnitCardClass(unit) {
   //* pro/vault close
 
   //* sync open
-  function bindSyncChannel() {
+  async function dispatchIncomingSyncMessage(msg) {
+    if (!msg?.type) return;
+    if (msg.originDeviceId && msg.originDeviceId === state.hwid) return;
+    const msgId = String(msg.id || '');
+    if (msgId) {
+      if (state.processedSyncMessages.has(msgId)) return;
+      state.processedSyncMessages.add(msgId);
+      if (state.processedSyncMessages.size > 400) {
+        const oldest = state.processedSyncMessages.values().next().value;
+        if (oldest) state.processedSyncMessages.delete(oldest);
+      }
+    }
+    if (msg.type === 'CLIENT_HEARTBEAT') handleClientHeartbeat(msg.client);
+    if (msg.type === 'CLIENT_ACCESS_REQUEST') handleClientAccessRequest(msg.client);
+    if (msg.type === 'CLIENT_ACTION') handleClientAction(msg.action);
+    if (msg.type === 'CLIENT_SYNC_CHECK_ACK') handleClientSyncAck(msg.payload);
+    if (msg.type === 'MASTER_SNAPSHOT') handleMasterSnapshot(msg.payload);
+    if (msg.type === 'MASTER_APPROVAL') handleMasterApproval(msg.payload);
+    if (msg.type === 'MASTER_ACTION_ACK') handleMasterActionAck(msg.payload);
+    if (msg.type === 'MASTER_SYNC_ROTATED') handleMasterSyncRotated(msg.payload);
+  }
+
+  async function emitSyncMessage(msg = {}, { withFirebase = true } = {}) {
+    const payload = {
+      ...msg,
+      id: msg.id || makeSyncMessageId(),
+      originDeviceId: state.hwid,
+      sentAt: Date.now()
+    };
+    try {
+      state.syncChannel?.postMessage(payload);
+    } catch (_) {}
+    if (withFirebase) {
+      const api = resolveFirebaseSyncApi();
+      if (api && state.db.shopId) {
+        try { await api.send(state.db.shopId, payload); } catch (_) {}
+      }
+    }
+  }
+
+  async function syncMasterMetaToFirebase() {
+    if (IS_CLIENT_NODE || !state.db.shopId) return;
+    const api = resolveFirebaseSyncApi();
+    if (!api) return;
+    try {
+      const clientSessions = (state.db.sync.clients || []).reduce((acc, client) => {
+        if (!client?.clientId || !client?.approved || !client?.clientSessionToken) return acc;
+        acc[client.clientId] = {
+          clientSessionToken: client.clientSessionToken,
+          sessionSyncVersion: Number(client.sessionSyncVersion || 0)
+        };
+        return acc;
+      }, {});
+      await api.writeSyncMeta(state.db.shopId, {
+        shopId: state.db.shopId,
+        shopName: state.db.shopName || 'FAKDU',
+        currentSyncPin: state.db.sync.currentSyncPin || '',
+        syncVersion: Number(state.db.sync.syncVersion || 1),
+        clientSessions
+      });
+    } catch (_) {}
+  }
+
+  async function bindSyncChannel() {
     try {
       if (state.syncChannel) state.syncChannel.close();
       state.syncChannel = new BroadcastChannel(`FAKDU_SYNC_${state.db.shopId || 'DEFAULT'}`);
       state.syncChannel.onmessage = (event) => {
-        const msg = event.data || {};
-        if (!msg?.type) return;
-        if (msg.type === 'CLIENT_HEARTBEAT') handleClientHeartbeat(msg.client);
-        if (msg.type === 'CLIENT_ACCESS_REQUEST') handleClientAccessRequest(msg.client);
-        if (msg.type === 'CLIENT_ACTION') handleClientAction(msg.action);
-        if (msg.type === 'CLIENT_SYNC_CHECK_ACK') handleClientSyncAck(msg.payload);
-        if (msg.type === 'MASTER_SNAPSHOT') handleMasterSnapshot(msg.payload);
-        if (msg.type === 'MASTER_APPROVAL') handleMasterApproval(msg.payload);
-        if (msg.type === 'MASTER_ACTION_ACK') handleMasterActionAck(msg.payload);
-        if (msg.type === 'MASTER_SYNC_ROTATED') handleMasterSyncRotated(msg.payload);
+        dispatchIncomingSyncMessage(event.data || {});
       };
     } catch (error) {
       console.warn('BroadcastChannel unavailable', error);
     }
+
+    if (state.stopFirebaseListener) {
+      try { state.stopFirebaseListener(); } catch (_) {}
+      state.stopFirebaseListener = null;
+    }
+    const api = resolveFirebaseSyncApi();
+    if (api && state.db.shopId) {
+      const minTs = Date.now() - 4000;
+      try {
+        state.stopFirebaseListener = api.listen(state.db.shopId, minTs, (msg) => dispatchIncomingSyncMessage(msg));
+      } catch (_) {
+        state.stopFirebaseListener = null;
+      }
+    }
+    if (!IS_CLIENT_NODE) await syncMasterMetaToFirebase();
   }
 
   function broadcastSnapshot() {
@@ -1815,7 +1901,7 @@ function getUnitCardClass(unit) {
         syncVersion: Number(state.db.sync.syncVersion || 1),
         at: Date.now()
       };
-      state.syncChannel?.postMessage({
+      emitSyncMessage({
         type: 'MASTER_SNAPSHOT',
         payload
       });
@@ -1827,9 +1913,6 @@ function getUnitCardClass(unit) {
     if (!payload || !IS_CLIENT_NODE) return;
     if (!isClientSessionValid()) return;
  
-
-
- main
     const session = getStoredClientSession();
     if (session && Number(payload.syncVersion || 0) > Number(session.syncVersion || 0)) {
       invalidateClientSession('เครื่องแม่เปลี่ยน PIN แล้ว กรุณาขออนุมัติใหม่');
@@ -1837,9 +1920,6 @@ function getUnitCardClass(unit) {
     }
  
 
-
-
- main
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
     if (payload.shopId) state.db.shopId = payload.shopId;
     state.db.shopName = payload.shopName || state.db.shopName;
@@ -1986,7 +2066,7 @@ function getUnitCardClass(unit) {
     if (!queue.length) return;
     for (const action of queue) {
       try {
-        state.syncChannel?.postMessage({ type: 'CLIENT_ACTION', action });
+        emitSyncMessage({ type: 'CLIENT_ACTION', action });
       } catch (_) {
         break;
       }
@@ -2011,7 +2091,7 @@ function getUnitCardClass(unit) {
     if (!pendingPin || !pendingShopId) return;
     const profile = getClientProfile();
     try {
-      state.syncChannel?.postMessage({
+      emitSyncMessage({
         type: 'CLIENT_ACCESS_REQUEST',
         client: {
           clientId: profile.clientId,
@@ -2032,7 +2112,7 @@ function getUnitCardClass(unit) {
     const profile = getClientProfile();
     const pendingOps = await getClientQueueLength();
     try {
-      state.syncChannel?.postMessage({
+      emitSyncMessage({
         type: 'CLIENT_HEARTBEAT',
         client: {
           clientId: profile.clientId,
@@ -2108,7 +2188,7 @@ function getUnitCardClass(unit) {
       logOperation('CLIENT_REQUEST_CHECKOUT', action);
       saveDb({ render: true, sync: false });
       try {
-        state.syncChannel?.postMessage({
+        emitSyncMessage({
           type: 'MASTER_ACTION_ACK',
           payload: {
             clientId: action.clientId,
@@ -2145,7 +2225,7 @@ function getUnitCardClass(unit) {
       logOperation('CLIENT_APPEND_ORDER', action);
       saveDb({ render: true, sync: false });
       try {
-        state.syncChannel?.postMessage({
+        emitSyncMessage({
           type: 'MASTER_ACTION_ACK',
           payload: {
             clientId: action.clientId,
@@ -2217,6 +2297,13 @@ function getUnitCardClass(unit) {
     }
     const approval = state.db.sync.approvals.find((row) => row.clientId === clientId);
     if (!approval) return;
+    if (Number(approval.syncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) {
+      state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
+      renderClientApprovalList();
+      showToast('คำขอนี้หมดอายุแล้ว (syncVersion ไม่ตรง)', 'error');
+      saveDb({ render: false, sync: false });
+      return;
+    }
     let client = state.db.sync.clients.find((row) => row.clientId === clientId);
     if (!client) {
       const clientSessionToken = issueClientSessionToken({ shopId: state.db.shopId, clientId, syncVersion: state.db.sync.syncVersion });
@@ -2250,7 +2337,7 @@ function getUnitCardClass(unit) {
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('APPROVE_CLIENT', { clientId });
     try {
-      state.syncChannel?.postMessage({
+      emitSyncMessage({
         type: 'MASTER_APPROVAL',
         payload: {
           clientId,
@@ -2273,7 +2360,7 @@ function getUnitCardClass(unit) {
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('REJECT_CLIENT', { clientId });
     try {
-      state.syncChannel?.postMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false, shopId: state.db.shopId } });
+      emitSyncMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false, shopId: state.db.shopId } });
     } catch (_) {}
     renderClientApprovalList();
     saveDb({ render: false, sync: false });
@@ -2389,7 +2476,7 @@ function getUnitCardClass(unit) {
     localStorage.removeItem('FAKDU_CLIENT_SESSION');
     logOperation('RESET_SYNC_KEY', { syncVersion: state.db.sync.syncVersion });
     try {
-      state.syncChannel?.postMessage({
+      emitSyncMessage({
         type: 'MASTER_SYNC_ROTATED',
         payload: {
           shopId: state.db.shopId,
@@ -2399,6 +2486,7 @@ function getUnitCardClass(unit) {
     } catch (_) {}
     updateSyncUi();
     saveDb({ render: false, sync: true });
+    syncMasterMetaToFirebase();
     showToast('สร้างรหัสใหม่แล้ว', 'success');
   }
   //* sync close
@@ -2452,12 +2540,27 @@ function getUnitCardClass(unit) {
     }
   }
 
-  function submitClientAccessRequest() {
+  async function submitClientAccessRequest() {
     const pin = qs('manual-pin')?.value?.trim() || '';
     if (!pin) return showToast('กรุณากรอก PIN', 'error');
     const pendingShopId = getPendingMasterShopId();
     if (!pendingShopId) {
       return showToast('กรุณาสแกน QR จากเครื่องแม่ก่อน (ต้องมีรหัสร้าน)', 'error');
+    }
+    const api = resolveFirebaseSyncApi();
+    if (api) {
+      try {
+        const meta = await api.readSyncMeta(pendingShopId);
+        const serverPin = String(meta?.currentSyncPin || '');
+        const serverVersion = Number(meta?.syncVersion || 0);
+        if (!serverPin || pin !== serverPin) {
+          showToast('PIN ไม่ถูกต้อง', 'error');
+          return;
+        }
+        if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
+      } catch (error) {
+        console.warn('PIN verification fallback to local channel', error);
+      }
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
     localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', pendingShopId);
@@ -2606,7 +2709,7 @@ function getUnitCardClass(unit) {
       state.db.sync.key = state.db.sync.currentSyncPin;
       await syncProStatus();
       applyTrialUiGuards();
-      bindSyncChannel();
+      await bindSyncChannel();
       startSyncPollingFallback();
       loadSettingsToForm();
       applyTheme();
@@ -2620,9 +2723,6 @@ function getUnitCardClass(unit) {
         if (qs('client-device-name')) qs('client-device-name').textContent = profile.profileName;
         if (qs('client-avatar') && profile.avatar) qs('client-avatar').src = profile.avatar;
 
-
-
- main
         const session = getStoredClientSession();
         state.db.sync.clientSession = session ? {
           shopId: session.shopId || '',
@@ -2630,9 +2730,21 @@ function getUnitCardClass(unit) {
           clientSessionToken: session.clientSessionToken || '',
           syncVersion: Number(session.syncVersion || state.db.sync.syncVersion || 1)
         } : null;
-
-
- main
+        if (isClientSessionValid()) {
+          const api = resolveFirebaseSyncApi();
+          if (api && state.db.shopId) {
+            try {
+              const meta = await api.readSyncMeta(state.db.shopId);
+              const sessionNow = getStoredClientSession();
+              const expected = sessionNow?.clientId ? meta?.clientSessions?.[sessionNow.clientId] : null;
+              const versionMismatch = Number(sessionNow?.syncVersion || 0) !== Number(meta?.syncVersion || 0);
+              const tokenMismatch = !expected || String(expected.clientSessionToken || '') !== String(sessionNow?.clientSessionToken || '');
+              if (!sessionNow || versionMismatch || tokenMismatch) {
+                await invalidateClientSession('session หมดอายุ กรุณาเชื่อมใหม่');
+              }
+            } catch (_) {}
+          }
+        }
         if (!isClientSessionValid()) {
           state.db.items = [];
           state.db.units = [];

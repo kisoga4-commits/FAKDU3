@@ -441,6 +441,7 @@ hr {
 }
 
 .unit-card--busy {
+
   border-color: rgba(16, 185, 129, 0.9) !important;
   border-width: 3px !important;
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18), var(--shadow-sm) !important;
@@ -450,6 +451,13 @@ hr {
   border-color: rgba(245, 158, 11, 0.9) !important;
   border-width: 3px !important;
   box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2), var(--shadow-sm) !important;
+
+  border-color: rgba(16, 185, 129, 0.55) !important;
+}
+
+.unit-card--draft {
+  border-color: rgba(245, 158, 11, 0.55) !important;
+ main
 }
 
 .table-has-draft,

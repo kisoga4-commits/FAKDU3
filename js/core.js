@@ -49,9 +49,13 @@
       animal: ''
     },
     sync: {
+      masterDeviceId: '',
+      syncVersion: 1,
+      currentSyncPin: '',
       key: '',
       keyResetDate: '',
       keyResetCount: 0,
+      approvedClients: [],
       clients: [],
       approvals: [],
       lastCheck: {
@@ -176,6 +180,10 @@
     if (IS_CLIENT_NODE) return 'client';
     return state.isAdminLoggedIn ? 'admin' : 'master';
   }
+  function getCurrentProfileName() {
+    if (IS_CLIENT_NODE) return getClientProfile().profileName;
+    return state.db.shopName || 'เครื่องแม่';
+  }
   function canManageOrders() {
     return !IS_CLIENT_NODE && state.isAdminLoggedIn;
   }
@@ -202,6 +210,34 @@
     const numeric = hashLike(entropy).replace(/\D/g, '');
     const base = numeric.slice(0, 6).padEnd(6, '7');
     return base.slice(0, 6);
+  }
+  function generateSyncPin(shopId = '', syncVersion = 1) {
+    const random = String(Math.floor(100000 + Math.random() * 900000));
+    const binding = hashLike(`${shopId}-${syncVersion}-${random}`);
+    const digits = binding.replace(/\D/g, '');
+    if (digits.length >= 2) {
+      return `${random.slice(0, 4)}${digits.slice(0, 2)}`;
+    }
+    return random;
+  }
+  function ensureClientId() {
+    let clientId = localStorage.getItem('FAKDU_CLIENT_ID') || '';
+    if (!clientId) {
+      clientId = `CLI-${Math.random().toString(36).slice(2, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+      localStorage.setItem('FAKDU_CLIENT_ID', clientId);
+    }
+    return clientId;
+  }
+  function getClientProfile() {
+    return {
+      clientId: ensureClientId(),
+      profileName: localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'เครื่องลูก',
+      avatar: localStorage.getItem('FAKDU_CLIENT_AVATAR') || ''
+    };
+  }
+  function issueClientSessionToken({ shopId, clientId, syncVersion }) {
+    const payload = `${shopId}|${clientId}|${syncVersion}|${Date.now()}|${Math.random().toString(36).slice(2, 10)}`;
+    return `SESS-${hashLike(payload).padEnd(16, '0').slice(0, 16)}`;
   }
   function getClientStatus(client) {
     if (!client) return 'offline';
@@ -316,7 +352,8 @@
         ...(raw?.sync?.lastCheck || {})
       },
       clients: Array.isArray(raw?.sync?.clients) ? raw.sync.clients : [],
-      approvals: Array.isArray(raw?.sync?.approvals) ? raw.sync.approvals : []
+      approvals: Array.isArray(raw?.sync?.approvals) ? raw.sync.approvals : [],
+      approvedClients: Array.isArray(raw?.sync?.approvedClients) ? raw.sync.approvedClients : []
     };
     merged.items = Array.isArray(raw?.items) ? raw.items.map((item) => ({
       id: item.id || `ITM-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -343,9 +380,10 @@
     merged.opLog = Array.isArray(raw?.opLog) ? raw.opLog : [];
     merged.fraudLogs = Array.isArray(raw?.fraudLogs) ? raw.fraudLogs : [];
     if (!merged.shopId) merged.shopId = makeShopId();
-    if (!merged.sync.key || merged.sync.key === '559038') {
-      merged.sync.key = generateSyncKey(merged.shopId || merged.shopName || 'FAKDU');
-    }
+    if (!merged.sync.syncVersion || Number(merged.sync.syncVersion) < 1) merged.sync.syncVersion = 1;
+    if (!merged.sync.masterDeviceId) merged.sync.masterDeviceId = state.hwid || '';
+    if (!merged.sync.currentSyncPin) merged.sync.currentSyncPin = merged.sync.key || generateSyncPin(merged.shopId, merged.sync.syncVersion);
+    merged.sync.key = merged.sync.currentSyncPin;
     return merged;
   }
   //* normalize close
@@ -363,12 +401,16 @@
 
   function logOperation(type, payload = {}) {
     state.db.opLog.push({
+      opId: `OP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       id: `OP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      shopId: state.db.shopId,
+      clientId: payload.clientId || (IS_CLIENT_NODE ? getClientProfile().clientId : (state.db.sync.masterDeviceId || state.hwid || 'MASTER')),
+      profileName: payload.profileName || getCurrentProfileName(),
+      role: payload.role || (IS_CLIENT_NODE ? 'client' : 'master'),
+      tableId: payload.tableId || payload.unitId || null,
       type,
-      payload: {
-        ...payload,
-        actor: getActorLabel()
-      },
+      payload: { ...payload, actor: getActorLabel() },
+      timestamp: Date.now(),
       at: Date.now()
     });
     if (state.db.opLog.length > 400) state.db.opLog = state.db.opLog.slice(-400);
@@ -431,7 +473,7 @@
   }
 
   function renderOnlineClientsUi() {
-    const clients = state.db.sync.clients.filter((client) => client.approved);
+    const clients = state.db.sync.clients.filter((client) => client.approved && Number(client.sessionSyncVersion || 0) === Number(state.db.sync.syncVersion || 1));
     const onlineClients = clients.filter((client) => getClientStatus(client) === 'online');
     const strip = qs('header-client-avatars');
     const miniBar = qs('header-online-clients-mini');
@@ -560,17 +602,17 @@
 
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return 'unit-card-draft-warning border-amber-300';
-    if (unit.orders.length > 0) return 'unit-card-active border-emerald-300';
-    if (unit.checkoutRequested) return 'bg-emerald-50 border-emerald-300';
+    if (cart.length > 0) return 'border-emerald-300';
+    if (unit.orders.length > 0) return 'border-emerald-300';
+    if (unit.checkoutRequested) return 'border-emerald-300';
     return 'bg-white border-gray-200';
   }
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return { cls: 'status-draft', label: 'มีค้างส่ง' };
-    if (unit.checkoutRequested) return { cls: 'status-checkout', label: 'รอเช็คบิล' };
-    if (unit.orders.length > 0) return { cls: 'status-active', label: 'ใช้งานอยู่' };
+    if (cart.length > 0) return { cls: 'status-active', label: 'ไม่ว่าง' };
+    if (unit.checkoutRequested) return { cls: 'status-active', label: 'ไม่ว่าง' };
+    if (unit.orders.length > 0) return { cls: 'status-active', label: 'ไม่ว่าง' };
     return { cls: 'status-idle', label: 'ว่าง' };
   }
 
@@ -601,20 +643,8 @@
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusMeta = getUnitStatusMeta(unit);
-      const statusText = cart.length > 0
-        ? 'มีค้างส่ง'
-        : unit.checkoutRequested
-        ? 'รอเช็คบิล'
-        : unit.orders.length > 0
-          ? ''
-          : 'ว่าง';
-      const statusPillClass = cart.length > 0
-        ? 'bg-amber-100 text-amber-700'
-        : unit.checkoutRequested
-          ? 'bg-emerald-100 text-emerald-700'
-          : unit.orders.length > 0
-            ? 'bg-emerald-500 text-white shadow-sm'
-            : 'bg-gray-100 text-gray-500';
+      const statusText = unit.orders.length > 0 || cart.length > 0 || unit.checkoutRequested ? '' : 'ว่าง';
+      const statusPillClass = 'bg-gray-100 text-gray-500';
       const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
         : unit.orders.length > 0
@@ -854,6 +884,35 @@
     const unit = state.db.units.find((row) => row.id === Number(state.activeUnitId));
     const cart = state.db.carts[state.activeUnitId] || [];
     if (!unit || !cart.length) return showToast('ไม่มีรายการส่ง', 'error');
+    if (IS_CLIENT_NODE) {
+      const session = getStoredClientSession();
+      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องแม่', 'error');
+      const profile = getClientProfile();
+      try {
+        state.syncChannel?.postMessage({
+          type: 'CLIENT_ACTION',
+          action: {
+            type: 'APPEND_ORDER',
+            shopId: session.shopId,
+            syncVersion: Number(session.syncVersion || 1),
+            clientId: profile.clientId,
+            clientSessionToken: session.clientSessionToken,
+            profileName: profile.profileName,
+            unitId: state.activeUnitId,
+            items: clone(cart)
+          }
+        });
+      } catch (_) {}
+      logOperation('CLIENT_APPEND_ORDER_REQUEST', { unitId: state.activeUnitId, profileName: profile.profileName, clientId: profile.clientId, role: 'client' });
+      state.db.carts[state.activeUnitId] = [];
+      closeModal('modal-review');
+      renderOrderedItemsBar(unit);
+      updateCartTotal();
+      saveDb({ render: true, sync: false });
+      showToast('ส่งออร์เดอร์ไปเครื่องแม่แล้ว', 'success');
+      switchTab('customer', qs('tab-customer'));
+      return;
+    }
     if (!unit.startTime) unit.startTime = Date.now();
     unit.lastActivityAt = Date.now();
     unit.status = 'active';
@@ -929,15 +988,15 @@
           ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
           : '';
       return `
-        <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border shadow-sm relative ${hasDraft ? 'draft-warning-card border-amber-300' : unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
+        <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border-2 shadow-sm relative ${getUnitCardClass(unit)}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
           <div class="flex items-start justify-between gap-3 mb-3">
             <div>
               <div class="font-black text-2xl text-gray-800">${getUnitLabel(unit.id)}</div>
-              <div class="text-[11px] font-bold ${hasDraft ? 'text-amber-700' : unit.checkoutRequested ? 'text-amber-600' : 'text-gray-400'}">${hasDraft ? 'มีรายการค้างในตะกร้า (Draft)' : unit.checkoutRequested ? 'ลูกค้าขอเช็คบิลแล้ว' : 'ยังไม่ได้กดเช็คบิลจากลูก'}</div>
+              <div class="text-[11px] font-bold text-gray-400">${hasDraft ? 'มีรายการค้างในตะกร้า' : unit.checkoutRequested ? 'รอเช็คบิล' : 'ยังไม่มีคำขอเช็คบิล'}</div>
             </div>
             <div class="text-right">
-              <div class="font-black text-xl ${hasDraft ? 'text-amber-700' : 'theme-text'}">฿${formatMoney(hasDraft ? draftTotal : total)}</div>
+              <div class="font-black text-xl text-gray-800">฿${formatMoney(hasDraft ? draftTotal : total)}</div>
               <div class="text-[10px] text-gray-400 font-bold">${formatDurationFrom(unit.startTime)}</div>
             </div>
           </div>
@@ -956,6 +1015,27 @@
     if (!unit) return;
     if (IS_CLIENT_NODE && unit.checkoutRequested) {
       showToast('ส่งคำขอเช็คบิลแล้ว รอเครื่องแม่ดำเนินการ', 'click');
+      return;
+    }
+    if (IS_CLIENT_NODE) {
+      const session = getStoredClientSession();
+      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องแม่', 'error');
+      const profile = getClientProfile();
+      try {
+        state.syncChannel?.postMessage({
+          type: 'CLIENT_ACTION',
+          action: {
+            type: 'REQUEST_CHECKOUT',
+            shopId: session.shopId,
+            syncVersion: Number(session.syncVersion || 1),
+            clientId: profile.clientId,
+            clientSessionToken: session.clientSessionToken,
+            profileName: profile.profileName,
+            unitId
+          }
+        });
+      } catch (_) {}
+      showToast('ส่งคำขอเช็คบิลไปเครื่องแม่แล้ว', 'success');
       return;
     }
     if (!IS_CLIENT_NODE && unit.checkoutRequested && !canManageOrders()) {
@@ -1699,7 +1779,8 @@
         items: state.db.items,
         units: state.db.units,
         salesCount: state.db.sales.length,
-        syncKey: state.db.sync.key,
+        syncPin: state.db.sync.currentSyncPin,
+        syncVersion: Number(state.db.sync.syncVersion || 1),
         at: Date.now()
       };
       state.syncChannel?.postMessage({
@@ -1719,6 +1800,11 @@
     state.db.bgColor = payload.bgColor || state.db.bgColor;
     state.db.logo = payload.logo || state.db.logo;
     state.db.unitType = payload.unitType || state.db.unitType;
+    if (payload.syncVersion) state.db.sync.syncVersion = Number(payload.syncVersion || state.db.sync.syncVersion || 1);
+    if (payload.syncPin) {
+      state.db.sync.currentSyncPin = payload.syncPin;
+      state.db.sync.key = payload.syncPin;
+    }
     if (Array.isArray(payload.items)) state.db.items = payload.items;
     if (Array.isArray(payload.units)) {
       state.db.units = payload.units.map((unit, index) => normalizeUnit(unit, index + 1));
@@ -1738,10 +1824,19 @@
     if (payload.approved) {
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       if (payload.syncKey) localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', payload.syncKey);
+      if (payload.shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', payload.shopId);
+      localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify({
+        shopId: payload.shopId || state.db.shopId || '',
+        clientId,
+        profileName: payload.profileName || getClientProfile().profileName,
+        clientSessionToken: payload.clientSessionToken || '',
+        syncVersion: Number(payload.syncVersion || 1)
+      }));
       showToast('เครื่องแม่อนุมัติแล้ว', 'success');
       return;
     }
     localStorage.setItem('FAKDU_CLIENT_APPROVED', 'false');
+    localStorage.removeItem('FAKDU_CLIENT_SESSION');
     showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
   }
 
@@ -1758,22 +1853,72 @@
     }, 1200);
   }
 
-  function handleClientHeartbeat(client) {
-    if (!client?.clientId) return;
-    let target = state.db.sync.clients.find((row) => row.clientId === client.clientId);
-    if (!target) {
-      target = {
-        clientId: client.clientId,
-        name: client.name || `Client ${state.db.sync.clients.length + 1}`,
-        avatar: client.avatar || '',
-        approved: false,
-        lastSeen: Date.now(),
-        lastSyncAt: null,
-        pendingOps: 0
-      };
-      state.db.sync.clients.push(target);
+  function getStoredClientSession() {
+    try {
+      const raw = localStorage.getItem('FAKDU_CLIENT_SESSION');
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
     }
-    target.name = client.name || target.name;
+  }
+
+  function isClientSessionValid() {
+    const session = getStoredClientSession();
+    if (!session) return false;
+    if (!session.clientSessionToken || !session.clientId || !session.shopId) return false;
+    return Number(session.syncVersion || 0) === Number(state.db.sync.syncVersion || session.syncVersion || 1);
+  }
+
+  function broadcastClientAccessRequest() {
+    if (!IS_CLIENT_NODE) return;
+    const pendingPin = localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || '';
+    const pendingShopId = localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '';
+    if (!pendingPin || !pendingShopId) return;
+    const profile = getClientProfile();
+    try {
+      state.syncChannel?.postMessage({
+        type: 'CLIENT_ACCESS_REQUEST',
+        client: {
+          clientId: profile.clientId,
+          profileName: profile.profileName,
+          avatar: profile.avatar,
+          pin: pendingPin,
+          shopId: pendingShopId,
+          syncVersion: Number(state.db.sync.syncVersion || 1)
+        }
+      });
+    } catch (_) {}
+  }
+
+  function broadcastClientHeartbeat() {
+    if (!IS_CLIENT_NODE) return;
+    const session = getStoredClientSession();
+    if (!session?.clientSessionToken) return;
+    const profile = getClientProfile();
+    try {
+      state.syncChannel?.postMessage({
+        type: 'CLIENT_HEARTBEAT',
+        client: {
+          clientId: profile.clientId,
+          profileName: profile.profileName,
+          avatar: profile.avatar,
+          clientSessionToken: session.clientSessionToken,
+          pendingOps: 0,
+          syncVersion: Number(session.syncVersion || 1),
+          lastSyncAt: Date.now()
+        }
+      });
+    } catch (_) {}
+  }
+
+  function handleClientHeartbeat(client) {
+    if (!client?.clientId || !client?.clientSessionToken) return;
+    let target = state.db.sync.clients.find((row) => row.clientId === client.clientId);
+    if (!target || !target.approved) return;
+    if (target.clientSessionToken !== client.clientSessionToken) return;
+    if (Number(target.sessionSyncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) return;
+    target.name = client.profileName || client.name || target.name;
+    target.profileName = target.name;
     target.avatar = client.avatar || target.avatar;
     target.lastSeen = Date.now();
     target.lastSyncAt = client.lastSyncAt || target.lastSyncAt;
@@ -1784,18 +1929,26 @@
 
   function handleClientAccessRequest(client) {
     if (!client?.clientId) return;
+    if (String(client.pin || '') !== String(state.db.sync.currentSyncPin || '')) return;
+    if (String(client.shopId || '') !== String(state.db.shopId || '')) return;
+    if (Number(client.syncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) return;
     if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
       return;
     }
     const exists = state.db.sync.approvals.find((row) => row.clientId === client.clientId);
     if (exists) {
       exists.requestedAt = Date.now();
+      exists.profileName = client.profileName || exists.profileName || exists.name;
+      exists.name = exists.profileName;
+      exists.syncVersion = Number(client.syncVersion || exists.syncVersion || 1);
     } else {
       state.db.sync.approvals.unshift({
         clientId: client.clientId,
-        name: client.name || `Client ${state.db.sync.approvals.length + 1}`,
+        profileName: client.profileName || client.name || `Client ${state.db.sync.approvals.length + 1}`,
+        name: client.profileName || client.name || `Client ${state.db.sync.approvals.length + 1}`,
         avatar: client.avatar || '',
         pin: client.pin || '',
+        syncVersion: Number(client.syncVersion || 1),
         requestedAt: Date.now()
       });
     }
@@ -1805,6 +1958,10 @@
 
   function handleClientAction(action) {
     if (!action?.type) return;
+    const client = state.db.sync.clients.find((row) => row.clientId === action.clientId);
+    if (!client || !client.approved) return;
+    if (String(client.clientSessionToken || '') !== String(action.clientSessionToken || '')) return;
+    if (Number(client.sessionSyncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) return;
     if (action.type === 'REQUEST_CHECKOUT') {
       const unit = state.db.units.find((row) => row.id === Number(action.unitId));
       if (!unit) return;
@@ -1832,7 +1989,7 @@
           total: Number(row.total || 0),
           addons: Array.isArray(row.addons) ? row.addons : [],
           source: 'client',
-          orderBy: action.clientName || action.clientId || 'Client',
+          orderBy: action.profileName || action.clientName || action.clientId || 'Client',
           createdAt: row.createdAt || Date.now()
         });
         unit.newItemsQty += Number(row.qty || 0);
@@ -1866,7 +2023,7 @@
           ${item.avatar ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : `<span class="font-black text-gray-600">${escapeHtml((item.name || 'C').slice(0, 1).toUpperCase())}</span>`}
         </div>
         <div class="flex-1 min-w-0">
-          <div class="font-black text-gray-800 truncate">${escapeHtml(item.name || item.clientId)}</div>
+          <div class="font-black text-gray-800 truncate">${escapeHtml(item.profileName || item.name || item.clientId)}</div>
           <div class="text-[10px] text-gray-400 font-bold">PIN ${escapeHtml(item.pin || '-')} • ${thaiDate(item.requestedAt)}</div>
         </div>
         <div class="flex gap-2 shrink-0">
@@ -1886,11 +2043,15 @@
     if (!approval) return;
     let client = state.db.sync.clients.find((row) => row.clientId === clientId);
     if (!client) {
+      const clientSessionToken = issueClientSessionToken({ shopId: state.db.shopId, clientId, syncVersion: state.db.sync.syncVersion });
       client = {
         clientId,
-        name: approval.name,
+        profileName: approval.profileName || approval.name,
+        name: approval.profileName || approval.name,
         avatar: approval.avatar,
         approved: true,
+        clientSessionToken,
+        sessionSyncVersion: Number(state.db.sync.syncVersion || 1),
         lastSeen: Date.now(),
         lastSyncAt: null,
         pendingOps: 0
@@ -1898,14 +2059,33 @@
       state.db.sync.clients.push(client);
     } else {
       client.approved = true;
-      client.name = approval.name || client.name;
+      client.profileName = approval.profileName || approval.name || client.profileName || client.name;
+      client.name = client.profileName;
       client.avatar = approval.avatar || client.avatar;
+      client.clientSessionToken = issueClientSessionToken({ shopId: state.db.shopId, clientId, syncVersion: state.db.sync.syncVersion });
+      client.sessionSyncVersion = Number(state.db.sync.syncVersion || 1);
       client.lastSeen = Date.now();
     }
+    state.db.sync.approvedClients = state.db.sync.clients.filter((row) => row.approved).map((row) => ({
+      clientId: row.clientId,
+      profileName: row.profileName || row.name || row.clientId,
+      sessionSyncVersion: row.sessionSyncVersion
+    }));
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('APPROVE_CLIENT', { clientId });
     try {
-      state.syncChannel?.postMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: true, syncKey: state.db.sync.key } });
+      state.syncChannel?.postMessage({
+        type: 'MASTER_APPROVAL',
+        payload: {
+          clientId,
+          approved: true,
+          syncKey: state.db.sync.currentSyncPin,
+          shopId: state.db.shopId,
+          syncVersion: state.db.sync.syncVersion,
+          clientSessionToken: client.clientSessionToken,
+          profileName: client.profileName || client.name || clientId
+        }
+      });
     } catch (_) {}
     renderClientApprovalList();
     renderOnlineClientsUi();
@@ -1917,7 +2097,7 @@
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('REJECT_CLIENT', { clientId });
     try {
-      state.syncChannel?.postMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false } });
+      state.syncChannel?.postMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false, shopId: state.db.shopId } });
     } catch (_) {}
     renderClientApprovalList();
     saveDb({ render: false, sync: false });
@@ -1925,7 +2105,7 @@
   }
 
   function updateSyncUi() {
-    if (qs('display-sync-key')) qs('display-sync-key').textContent = state.db.sync.key || '------';
+    if (qs('display-sync-key')) qs('display-sync-key').textContent = state.db.sync.currentSyncPin || '------';
     const qrArea = qs('sync-qr-area');
     if (qrArea) {
       qrArea.innerHTML = '';
@@ -1933,15 +2113,16 @@
         new QRCode(qrArea, {
           text: JSON.stringify({
             shopId: state.db.shopId,
-            pin: state.db.sync.key,
+            pin: state.db.sync.currentSyncPin,
             shopName: state.db.shopName,
+            syncVersion: Number(state.db.sync.syncVersion || 1),
             version: APP_VERSION
           }),
           width: 72,
           height: 72
         });
       } else {
-        qrArea.textContent = state.db.sync.key || 'PIN';
+        qrArea.textContent = state.db.sync.currentSyncPin || 'PIN';
       }
     }
     renderOnlineClientsUi();
@@ -2014,16 +2195,21 @@
 
   function requestNewSyncKey() {
     const today = getLocalYYYYMMDD();
-    if (state.db.sync.keyResetDate !== today) {
-      state.db.sync.keyResetDate = today;
-      state.db.sync.keyResetCount = 0;
-    }
-    if (state.db.sync.keyResetCount >= 3) {
-      return showToast('วันนี้ขอรหัสใหม่ครบ 3 ครั้งแล้ว', 'error');
-    }
-    state.db.sync.keyResetCount += 1;
-    state.db.sync.key = String(Math.floor(100000 + Math.random() * 900000));
-    logOperation('RESET_SYNC_KEY', { key: state.db.sync.key, countToday: state.db.sync.keyResetCount });
+    state.db.sync.keyResetDate = today;
+    state.db.sync.keyResetCount = Number(state.db.sync.keyResetCount || 0) + 1;
+    state.db.sync.syncVersion = Number(state.db.sync.syncVersion || 1) + 1;
+    state.db.sync.currentSyncPin = generateSyncPin(state.db.shopId, state.db.sync.syncVersion);
+    state.db.sync.key = state.db.sync.currentSyncPin;
+    state.db.sync.approvals = [];
+    state.db.sync.clients = state.db.sync.clients.map((client) => ({
+      ...client,
+      approved: false,
+      clientSessionToken: '',
+      sessionSyncVersion: Number(state.db.sync.syncVersion || 1)
+    }));
+    state.db.sync.approvedClients = [];
+    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    logOperation('RESET_SYNC_KEY', { syncVersion: state.db.sync.syncVersion });
     updateSyncUi();
     saveDb({ render: false, sync: true });
     showToast('สร้างรหัสใหม่แล้ว', 'success');
@@ -2084,6 +2270,37 @@
   }
   //* scanner close
 
+  //* client profile open
+  function handleClientImage(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result || '');
+      localStorage.setItem('FAKDU_CLIENT_AVATAR', data);
+      if (qs('client-avatar')) qs('client-avatar').src = data;
+      showToast('อัปเดตรูปเครื่องลูกแล้ว', 'success');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function saveClientSettings() {
+    const name = (qs('sys-client-name')?.value || '').trim();
+    if (!name) return showToast('กรอกชื่อโปรไฟล์ก่อน', 'error');
+    localStorage.setItem('FAKDU_CLIENT_PROFILE_NAME', name);
+    if (qs('client-device-name')) qs('client-device-name').textContent = name;
+    showToast('บันทึกโปรไฟล์แล้ว', 'success');
+  }
+
+  function clientLogout() {
+    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    localStorage.removeItem('FAKDU_CLIENT_APPROVED');
+    localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
+    localStorage.removeItem('FAKDU_PENDING_MASTER_SHOP_ID');
+    window.location.href = 'index.html';
+  }
+  //* client profile close
+
   //* install open
   function installPWA() {
     if (!state.deferredInstallPrompt) {
@@ -2120,6 +2337,10 @@
         qs('checkout-live-time').textContent = `เวลาใช้งาน: ${formatDurationFrom(active.startTime)}`;
       }
       renderOnlineClientsUi();
+      if (IS_CLIENT_NODE) {
+        if (isClientSessionValid()) broadcastClientHeartbeat();
+        else broadcastClientAccessRequest();
+      }
     }, 1000);
   }
   //* timers close
@@ -2136,7 +2357,7 @@
     renderAdminLists();
     renderSystemPanels();
     updateCartTotal();
-    if (qs('display-hwid')) qs('display-hwid').textContent = state.db.shopId || state.hwid || 'UNKNOWN';
+    if (qs('display-hwid')) qs('display-hwid').textContent = state.db.shopName || 'FAKDU';
   }
   //* render close
 
@@ -2147,6 +2368,9 @@
       const raw = await resolveDbApi().load();
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();
+      if (!state.db.sync.masterDeviceId) state.db.sync.masterDeviceId = state.hwid;
+      if (!state.db.sync.currentSyncPin) state.db.sync.currentSyncPin = generateSyncPin(state.db.shopId, state.db.sync.syncVersion || 1);
+      state.db.sync.key = state.db.sync.currentSyncPin;
       await syncProStatus();
       applyTrialUiGuards();
       bindSyncChannel();
@@ -2157,6 +2381,12 @@
       updateMasterConnectionUi();
       syncCustomSearchUiMode();
       renderAll();
+      if (IS_CLIENT_NODE) {
+        const profile = getClientProfile();
+        if (qs('sys-client-name')) qs('sys-client-name').value = profile.profileName;
+        if (qs('client-device-name')) qs('client-device-name').textContent = profile.profileName;
+        if (qs('client-avatar') && profile.avatar) qs('client-avatar').src = profile.avatar;
+      }
       const today = getLocalYYYYMMDD();
       if (qs('search-start')) qs('search-start').value = today;
       if (qs('search-end')) qs('search-end').value = today;
@@ -2239,6 +2469,9 @@
     closeClientScanner,
     submitClientAccessRequest,
     submitClientAccess: submitClientAccessRequest,
+    handleClientImage,
+    saveClientSettings,
+    clientLogout,
     adjustAddonQty,
     confirmAddonSelection,
     approveClient,

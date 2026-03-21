@@ -42,7 +42,7 @@
                     <span id="shop-status-mini">Master พร้อมใช้งาน</span>
                 </div>
                 <div id="header-client-strip" class="flex items-center gap-1.5 min-h-[18px] mt-1">
-                    <div id="header-client-empty" class="text-[10px] font-bold text-white/60 hidden">ยังไม่มีเครื่องลูกออนไลน์</div>
+                    <div id="header-client-empty" class="text-[10px] font-bold text-white/60 hidden">●</div>
                     <div id="header-client-avatars" class="hidden items-center gap-1.5"></div>
                 </div>
             </div>
@@ -65,10 +65,10 @@
 
     <!--* nav open -->
     <div class="top-nav !grid !grid-cols-4">
-        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)"><span class="nav-icon">👨‍👩‍👦</span><span class="nav-label">TAP ลูกค้า</span></div>
-        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)"><span class="nav-icon">🧾</span><span class="nav-label">TAP เช็คบิล</span></div>
-        <div id="tab-manage" class="nav-tab" onclick="attemptAdmin('manage', this)"><span class="nav-icon">📊</span><span class="nav-label">TAP หลังร้าน</span></div>
-        <div id="tab-system" class="nav-tab" onclick="attemptAdmin('system', this)"><span class="nav-icon">⚙️</span><span class="nav-label">TAP ระบบ</span></div>
+        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)"><span class="nav-icon">👨‍👩‍👦</span><span class="nav-label">ลูกค้า</span></div>
+        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)"><span class="nav-icon">🧾</span><span class="nav-label">เช็คบิล</span></div>
+        <div id="tab-manage" class="nav-tab" onclick="attemptAdmin('manage', this)"><span class="nav-icon">📊</span><span class="nav-label">หลังร้าน</span></div>
+        <div id="tab-system" class="nav-tab" onclick="attemptAdmin('system', this)"><span class="nav-icon">⚙️</span><span class="nav-label">ระบบ</span></div>
     </div>
     <!--** nav close -->
 
@@ -170,7 +170,7 @@
                         <div class="text-center text-[10px] font-bold text-gray-500 bg-white p-2 rounded-lg border">ยอดรวมที่เลือก: <span class="font-black text-xl text-blue-700 tracking-tighter ml-1">฿<span id="search-total">0</span></span></div>
                     </div>
                     <div id="sales-history" class="divide-y text-xs space-y-3 max-h-60 overflow-y-auto pr-2"></div>
-                    <button onclick="clearSales()" class="w-full mt-4 bg-red-50 text-red-600 py-3 rounded-xl font-black text-xs active:scale-95 transition-transform border border-red-100 hidden master-only">🗑️ ล้างยอดขายทั้งหมด</button>
+                    <button onclick="clearSales()" class="w-full mt-4 bg-red-50 text-red-600 py-3 rounded-xl font-black text-xs active:scale-95 transition-transform border border-red-100">🗑️ รีเซ็ตยอดขาย</button>
                 </div>
 
                 <div id="dash-top" class="hidden">

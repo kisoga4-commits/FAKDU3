@@ -5,6 +5,7 @@
   const APP_VERSION = '9.46';
   const LS_ADMIN = 'FAKDU_ADMIN_LOGGED_IN';
   const LS_DEFERRED_INSTALL = 'FAKDU_DEFERRED_INSTALL';
+  const LS_SNAPSHOT_PREFIX = 'FAKDU_SYNC_SNAPSHOT_';
   const COLOR_MAP = {
     red: 'สีแดง',
     white: 'สีขาว',
@@ -86,6 +87,7 @@
     deferredInstallPrompt: null,
     syncButtonResetTimer: null,
     syncChannel: null,
+    syncPollTimer: null,
     liveTick: null,
     autoSaveTimer: null,
     audioCtx: null,
@@ -546,8 +548,7 @@
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
     if (cart.length > 0) return 'unit-card-draft-warning border-amber-300';
-    if (unit.checkoutRequested) return 'bg-amber-50 border-amber-300';
-    if (unit.orders.length > 0) return 'bg-emerald-50 border-emerald-300';
+    if (unit.checkoutRequested || unit.orders.length > 0) return 'bg-emerald-50 border-emerald-300';
     return 'bg-white border-gray-200';
   }
 
@@ -560,17 +561,17 @@
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusText = cart.length > 0
-        ? 'รอส่งออร์เดอร์'
+        ? '🟠'
         : unit.checkoutRequested
-        ? 'รอเช็คบิล'
+        ? '🟢'
         : unit.orders.length > 0
-          ? 'กำลังใช้งาน'
-          : 'ว่าง';
+          ? '🟢'
+          : '⚪';
       const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
         : unit.orders.length > 0
           ? `ยอดรวม ฿${formatMoney(total)}`
-          : 'พร้อมรับออร์เดอร์';
+          : '-';
       const timeText = unit.startTime ? formatDurationFrom(unit.startTime) : '-';
       return `
         <button onclick="openTable(${unit.id})" class="text-left p-4 rounded-[26px] border-2 shadow-sm transition active:scale-[0.98] ${getUnitCardClass(unit)}">
@@ -580,7 +581,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[10px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-amber-100 text-amber-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}">${statusText}</div>
+              <div class="text-[12px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -1073,6 +1074,7 @@
     element?.classList?.add('active', 'bg-white', 'shadow-sm', 'text-gray-800');
     if (qs('dash-history')) qs('dash-history').classList.toggle('hidden', name !== 'history');
     if (qs('dash-top')) qs('dash-top').classList.toggle('hidden', name !== 'top');
+    renderAnalytics();
   }
 
   function calculateSalesBuckets() {
@@ -1090,7 +1092,7 @@
       if (diffDays >= 0 && diffDays < 7) week += Number(sale.total || 0);
       if (diffDays >= 0 && diffDays < 30) month += Number(sale.total || 0);
       (sale.items || []).forEach((row) => {
-        const base = row.baseName || (row.name || '').split(' (')[0];
+        const base = row.baseName || (row.name || '').split(' (')[0] || 'ไม่ระบุ';
         itemCounts[base] = (itemCounts[base] || 0) + Number(row.qty || 0);
       });
     });
@@ -1162,6 +1164,8 @@
   }
 
   function clearSales() {
+    if (IS_CLIENT_NODE) return showToast('รีเซ็ตยอดขายได้เฉพาะเครื่องแม่', 'error');
+    if (!canManageOrders()) return showToast('ต้องเข้าโหมดแอดมินก่อนรีเซ็ตยอดขาย', 'error');
     if (!confirm('ล้างประวัติยอดขายทั้งหมด?')) return;
     state.db.sales = [];
     logOperation('CLEAR_SALES');
@@ -1570,6 +1574,8 @@
         if (msg.type === 'CLIENT_ACCESS_REQUEST') handleClientAccessRequest(msg.client);
         if (msg.type === 'CLIENT_ACTION') handleClientAction(msg.action);
         if (msg.type === 'CLIENT_SYNC_CHECK_ACK') handleClientSyncAck(msg.payload);
+        if (msg.type === 'MASTER_SNAPSHOT') handleMasterSnapshot(msg.payload);
+        if (msg.type === 'MASTER_APPROVAL') handleMasterApproval(msg.payload);
       };
     } catch (error) {
       console.warn('BroadcastChannel unavailable', error);
@@ -1578,24 +1584,74 @@
 
   function broadcastSnapshot() {
     try {
+      const payload = {
+        shopId: state.db.shopId,
+        shopName: state.db.shopName,
+        theme: state.db.theme,
+        bgColor: state.db.bgColor,
+        logo: state.db.logo,
+        unitType: state.db.unitType,
+        unitCount: state.db.unitCount,
+        items: state.db.items,
+        units: state.db.units,
+        salesCount: state.db.sales.length,
+        syncKey: state.db.sync.key,
+        at: Date.now()
+      };
       state.syncChannel?.postMessage({
         type: 'MASTER_SNAPSHOT',
-        payload: {
-          shopId: state.db.shopId,
-          shopName: state.db.shopName,
-          theme: state.db.theme,
-          bgColor: state.db.bgColor,
-          logo: state.db.logo,
-          unitType: state.db.unitType,
-          unitCount: state.db.unitCount,
-          items: state.db.items,
-          units: state.db.units,
-          salesCount: state.db.sales.length,
-          syncKey: state.db.sync.key,
-          at: Date.now()
-        }
+        payload
       });
+      localStorage.setItem(`${LS_SNAPSHOT_PREFIX}${state.db.shopId || 'DEFAULT'}`, JSON.stringify(payload));
     } catch (_) {}
+  }
+
+  function applyMasterSnapshot(payload) {
+    if (!payload || !IS_CLIENT_NODE) return;
+    if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
+    if (payload.shopId) state.db.shopId = payload.shopId;
+    state.db.shopName = payload.shopName || state.db.shopName;
+    state.db.theme = payload.theme || state.db.theme;
+    state.db.bgColor = payload.bgColor || state.db.bgColor;
+    state.db.logo = payload.logo || state.db.logo;
+    state.db.unitType = payload.unitType || state.db.unitType;
+    if (Array.isArray(payload.items)) state.db.items = payload.items;
+    if (Array.isArray(payload.units)) {
+      state.db.units = payload.units.map((unit, index) => normalizeUnit(unit, index + 1));
+      state.db.unitCount = state.db.units.length;
+    }
+    saveDb({ render: true, sync: false });
+  }
+
+  function handleMasterSnapshot(payload) {
+    applyMasterSnapshot(payload);
+  }
+
+  function handleMasterApproval(payload) {
+    if (!IS_CLIENT_NODE || !payload?.clientId) return;
+    const clientId = localStorage.getItem('FAKDU_CLIENT_ID') || '';
+    if (!clientId || payload.clientId !== clientId) return;
+    if (payload.approved) {
+      localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
+      if (payload.syncKey) localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', payload.syncKey);
+      showToast('เครื่องแม่อนุมัติแล้ว', 'success');
+      return;
+    }
+    localStorage.setItem('FAKDU_CLIENT_APPROVED', 'false');
+    showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
+  }
+
+  function startSyncPollingFallback() {
+    clearInterval(state.syncPollTimer);
+    state.syncPollTimer = setInterval(() => {
+      if (!IS_CLIENT_NODE) return;
+      const key = `${LS_SNAPSHOT_PREFIX}${state.db.shopId || localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || 'DEFAULT'}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      try {
+        applyMasterSnapshot(JSON.parse(raw));
+      } catch (_) {}
+    }, 1200);
   }
 
   function handleClientHeartbeat(client) {
@@ -1991,6 +2047,7 @@
       await syncProStatus();
       applyTrialUiGuards();
       bindSyncChannel();
+      startSyncPollingFallback();
       loadSettingsToForm();
       applyTheme();
       updateSyncUi();
@@ -2013,6 +2070,13 @@
   //* events open
   window.addEventListener('online', updateMasterConnectionUi);
   window.addEventListener('offline', updateMasterConnectionUi);
+  window.addEventListener('storage', (event) => {
+    if (!IS_CLIENT_NODE || !event.key || !event.newValue) return;
+    if (!event.key.startsWith(LS_SNAPSHOT_PREFIX)) return;
+    try {
+      applyMasterSnapshot(JSON.parse(event.newValue));
+    } catch (_) {}
+  });
   document.addEventListener('DOMContentLoaded', init);
   //* events close
 

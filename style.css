@@ -385,6 +385,26 @@ hr {
   box-shadow: var(--shadow-md);
 }
 
+.unit-status-ring {
+  box-shadow: inset 0 0 0 2px rgba(209, 213, 219, 0.65), var(--shadow-sm);
+}
+
+.unit-status-ring.status-idle {
+  box-shadow: inset 0 0 0 2px rgba(209, 213, 219, 0.8), var(--shadow-sm);
+}
+
+.unit-status-ring.status-active {
+  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.55), var(--shadow-sm);
+}
+
+.unit-status-ring.status-checkout {
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.6), var(--shadow-sm);
+}
+
+.unit-status-ring.status-draft {
+  box-shadow: inset 0 0 0 2px rgba(249, 115, 22, 0.65), var(--shadow-sm);
+}
+
 .table-has-draft,
 .unit-draft,
 .has-draft {

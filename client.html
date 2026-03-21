@@ -46,6 +46,9 @@
                 <button onclick="changeGridZoom(1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">+</button>
             </div>
         </div>
+        <div id="customer-grid-toolbar" class="hidden mb-3 flex justify-end">
+            <button id="btn-toggle-grid-collapse" onclick="toggleCustomerGridCollapse()" class="text-[11px] font-black px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 active:scale-95"></button>
+        </div>
         <div id="grid-units" class="grid grid-cols-2 gap-4"></div>
     </div>
 
@@ -71,6 +74,13 @@
     </div>
 
     <div id="screen-shop" class="screen hidden p-5 pt-8">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="font-black text-xl text-gray-800">คิวเช็คบิล</h2>
+            <div id="shop-request-count" class="bg-gray-100 text-gray-600 px-3 py-2 rounded-xl text-xs font-black">0 รายการ</div>
+        </div>
+        <div id="shop-queue-toolbar" class="hidden mb-3 flex justify-end">
+            <button id="btn-toggle-queue-collapse" onclick="toggleShopQueueCollapse()" class="text-[11px] font-black px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 active:scale-95"></button>
+        </div>
         <div id="shop-queue" class="space-y-4"></div>
     </div>
 

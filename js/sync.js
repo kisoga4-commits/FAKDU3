@@ -24,6 +24,21 @@
     const shopRoot = (shopId = '') => `shops/${shopId}`;
 
     return {
+      async readSyncPin(pin = '') {
+        const safePin = String(pin || '').trim();
+        if (!safePin) return null;
+        const snap = await db.ref(`syncPins/${safePin}`).get();
+        if (!snap.exists()) return null;
+        const payload = snap.val() || {};
+        return {
+          pin: safePin,
+          shopId: String(payload.shopId || ''),
+          syncVersion: Number(payload.syncVersion || 0),
+          masterDeviceId: String(payload.masterDeviceId || ''),
+          active: payload.active !== false,
+          updatedAt: Number(payload.updatedAt || 0)
+        };
+      },
       async readSyncMeta(shopId = '') {
         if (!shopId) return null;
         const snap = await db.ref(`${shopRoot(shopId)}/master`).get();
@@ -32,17 +47,39 @@
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
         const safeVersion = Number(meta.syncVersion || 1);
+        const safePin = String(meta.currentSyncPin || '').trim();
+        const masterPath = `${shopRoot(shopId)}/master`;
+        const prevSnap = await db.ref(masterPath).get();
+        const prevPin = String(prevSnap.val()?.currentSyncPin || '').trim();
         const payload = {
           shopId,
           shopName: meta.shopName || 'FAKDU',
           masterDeviceId: meta.masterDeviceId || '',
-          currentSyncPin: meta.currentSyncPin || '',
+          currentSyncPin: safePin,
           syncVersion: safeVersion,
           approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
           clientSessions: (meta.clientSessions && typeof meta.clientSessions === 'object') ? meta.clientSessions : {},
           updatedAt: Date.now()
         };
-        await db.ref(`${shopRoot(shopId)}/master`).set(payload);
+        await db.ref(masterPath).set(payload);
+        if (safePin) {
+          await db.ref(`syncPins/${safePin}`).set({
+            shopId,
+            syncVersion: safeVersion,
+            masterDeviceId: payload.masterDeviceId,
+            active: true,
+            updatedAt: Date.now()
+          });
+        }
+        if (prevPin && prevPin !== safePin) {
+          await db.ref(`syncPins/${prevPin}`).update({
+            shopId,
+            syncVersion: safeVersion,
+            masterDeviceId: payload.masterDeviceId,
+            active: false,
+            updatedAt: Date.now()
+          });
+        }
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};

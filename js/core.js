@@ -102,14 +102,19 @@
     syncPollTimer: null,
     firebaseSyncApi: null,
     stopFirebaseListener: null,
+    stopJoinRequestListener: null,
+    stopClientApproveListener: null,
+    stopOperationListener: null,
     processedSyncMessages: new Set(),
+    processedOperationIds: new Set(),
     clientQueueFlushTimer: null,
     liveTick: null,
     autoSaveTimer: null,
     audioCtx: null,
     hwid: '',
     isPro: false,
-    lastClientHeartbeatAt: 0
+    lastClientHeartbeatAt: 0,
+    lastCloudSessionCheckAt: 0
   };
   const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '');
   //* constants close
@@ -267,9 +272,11 @@
   }
   function resolveFirebaseSyncApi() {
     if (state.firebaseSyncApi) return state.firebaseSyncApi;
-    const factory = window.FakduFirebaseSync && typeof window.FakduFirebaseSync.resolveApi === 'function'
-      ? window.FakduFirebaseSync.resolveApi
-      : null;
+    const factory = window.FakduSync && typeof window.FakduSync.resolveApi === 'function'
+      ? window.FakduSync.resolveApi
+      : (window.FakduFirebaseSync && typeof window.FakduFirebaseSync.resolveApi === 'function'
+        ? window.FakduFirebaseSync.resolveApi
+        : null);
     if (!factory) return null;
     try {
       state.firebaseSyncApi = factory();
@@ -1901,6 +1908,18 @@ function getUnitCardClass(unit) {
       try { state.stopFirebaseListener(); } catch (_) {}
       state.stopFirebaseListener = null;
     }
+    if (state.stopJoinRequestListener) {
+      try { state.stopJoinRequestListener(); } catch (_) {}
+      state.stopJoinRequestListener = null;
+    }
+    if (state.stopClientApproveListener) {
+      try { state.stopClientApproveListener(); } catch (_) {}
+      state.stopClientApproveListener = null;
+    }
+    if (state.stopOperationListener) {
+      try { state.stopOperationListener(); } catch (_) {}
+      state.stopOperationListener = null;
+    }
     const api = resolveFirebaseSyncApi();
     if (api && state.db.shopId) {
       const minTs = Date.now() - 4000;
@@ -1908,6 +1927,40 @@ function getUnitCardClass(unit) {
         state.stopFirebaseListener = api.listen(state.db.shopId, minTs, (msg) => dispatchIncomingSyncMessage(msg));
       } catch (_) {
         state.stopFirebaseListener = null;
+      }
+      if (!IS_CLIENT_NODE && typeof api.listenJoinRequests === 'function') {
+        try {
+          state.stopJoinRequestListener = api.listenJoinRequests(state.db.shopId, (client) => handleClientAccessRequest(client));
+        } catch (_) {
+          state.stopJoinRequestListener = null;
+        }
+      }
+      if (!IS_CLIENT_NODE && typeof api.listenOperations === 'function') {
+        try {
+          state.stopOperationListener = api.listenOperations(state.db.shopId, minTs, (action) => handleClientAction(action));
+        } catch (_) {
+          state.stopOperationListener = null;
+        }
+      }
+      if (IS_CLIENT_NODE && typeof api.listenClient === 'function') {
+        const clientId = getClientProfile().clientId;
+        if (clientId) {
+          try {
+            state.stopClientApproveListener = api.listenClient(state.db.shopId, clientId, (payload) => {
+              handleMasterApproval({
+                clientId,
+                approved: Boolean(payload?.approved),
+                syncKey: payload?.syncKey || state.db.sync.currentSyncPin,
+                shopId: state.db.shopId,
+                syncVersion: Number(payload?.sessionSyncVersion || payload?.syncVersion || state.db.sync.syncVersion || 1),
+                clientSessionToken: payload?.clientSessionToken || '',
+                profileName: payload?.profileName || ''
+              });
+            });
+          } catch (_) {
+            state.stopClientApproveListener = null;
+          }
+        }
       }
     }
     if (!IS_CLIENT_NODE) await syncMasterMetaToFirebase();
@@ -2083,6 +2136,28 @@ function getUnitCardClass(unit) {
     return Number(session.syncVersion || 0) === Number(state.db.sync.syncVersion || session.syncVersion || 1);
   }
 
+  async function verifyClientSessionAgainstCloud() {
+    if (!IS_CLIENT_NODE) return true;
+    const session = getStoredClientSession();
+    if (!session?.clientSessionToken || !session?.shopId || !session?.clientId) return false;
+    const api = resolveFirebaseSyncApi();
+    if (!api || typeof api.readSyncMeta !== 'function') return true;
+    try {
+      const meta = await api.readSyncMeta(session.shopId);
+      const cloudVersion = Number(meta?.syncVersion || 0);
+      const cloudToken = String(meta?.clientSessions?.[session.clientId]?.clientSessionToken || '');
+      const versionMismatch = cloudVersion > 0 && Number(session.syncVersion || 0) !== cloudVersion;
+      const tokenMismatch = !!cloudToken && cloudToken !== String(session.clientSessionToken || '');
+      if (versionMismatch || tokenMismatch) {
+        await invalidateClientSession('PIN เปลี่ยนหรือ session หมดอายุ ต้องเชื่อมใหม่');
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   function getClientQueueStorageApi() {
     if (window.FakduDB && typeof window.FakduDB.loadClientQueue === 'function' && typeof window.FakduDB.saveClientQueue === 'function') {
       return window.FakduDB;
@@ -2143,8 +2218,12 @@ function getUnitCardClass(unit) {
     if (!IS_CLIENT_NODE || !isClientSessionValid() || !navigator.onLine) return;
     const queue = await loadClientOpQueue();
     if (!queue.length) return;
+    const api = resolveFirebaseSyncApi();
     for (const action of queue) {
       try {
+        if (api && state.db.shopId) {
+          await api.writeOperation(state.db.shopId, action);
+        }
         emitSyncMessage({ type: 'CLIENT_ACTION', action });
       } catch (_) {
         break;
@@ -2264,6 +2343,15 @@ function getUnitCardClass(unit) {
 
   function handleClientAction(action) {
     if (!action?.type) return;
+    const opId = String(action.opId || action.id || '');
+    if (opId) {
+      if (state.processedOperationIds.has(opId)) return;
+      state.processedOperationIds.add(opId);
+      if (state.processedOperationIds.size > 600) {
+        const oldest = state.processedOperationIds.values().next().value;
+        if (oldest) state.processedOperationIds.delete(oldest);
+      }
+    }
     if (String(action.shopId || '') !== String(state.db.shopId || '')) return;
     const client = state.db.sync.clients.find((row) => row.clientId === action.clientId);
     if (!client || !client.approved) return;
@@ -2686,24 +2774,70 @@ function getUnitCardClass(unit) {
       return showToast('กรุณาสแกน QR จากเครื่องแม่ก่อน (ต้องมีรหัสร้าน)', 'error');
     }
     const api = resolveFirebaseSyncApi();
-    if (api) {
-      try {
-        const meta = await api.readSyncMeta(pendingShopId);
-        const serverPin = String(meta?.currentSyncPin || '');
-        const serverVersion = Number(meta?.syncVersion || 0);
-        if (!serverPin || pin !== serverPin) {
-          showToast('PIN ไม่ถูกต้อง', 'error');
-          return;
-        }
-        if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
-      } catch (error) {
-        console.warn('PIN verification fallback to local channel', error);
+    if (!api) return showToast('เชื่อม cloud ไม่ได้', 'error');
+    const profile = getClientProfile();
+    let serverVersion = getPendingSyncVersion();
+    try {
+      const meta = await api.readSyncMeta(pendingShopId);
+      const serverPin = String(meta?.currentSyncPin || '');
+      serverVersion = Number(meta?.syncVersion || 0) || serverVersion;
+      if (!serverPin || pin !== serverPin) {
+        showToast('PIN ไม่ถูกต้อง', 'error');
+        return;
       }
+      if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
+      await api.writeJoinRequest(pendingShopId, {
+        clientId: profile.clientId,
+        profileName: profile.profileName,
+        avatar: profile.avatar,
+        pin,
+        shopId: pendingShopId,
+        syncVersion: serverVersion
+      });
+    } catch (error) {
+      console.warn('PIN verification failed', error);
+      showToast('ตรวจสอบ PIN กับ cloud ไม่สำเร็จ', 'error');
+      return;
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
     localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', pendingShopId);
-    localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
-    window.location.href = 'client.html';
+    showToast('ส่งคำขอแล้ว รอเครื่องแม่อนุมัติ', 'click');
+    try {
+      const approvedPayload = await new Promise((resolve, reject) => {
+        let timeoutId = null;
+        const stop = api.listenClient(pendingShopId, profile.clientId, (payload) => {
+          if (!payload) return;
+          if (!payload.approved) return reject(new Error('rejected'));
+          const approvedVersion = Number(payload.sessionSyncVersion || payload.syncVersion || 0);
+          if (serverVersion > 0 && approvedVersion > 0 && approvedVersion !== serverVersion) return;
+          if (!payload.clientSessionToken) return;
+          clearTimeout(timeoutId);
+          try { stop(); } catch (_) {}
+          resolve(payload);
+        });
+        timeoutId = setTimeout(() => {
+          try { stop(); } catch (_) {}
+          reject(new Error('timeout'));
+        }, 120000);
+      });
+      const sessionPayload = {
+        shopId: pendingShopId,
+        clientId: profile.clientId,
+        profileName: profile.profileName,
+        clientSessionToken: approvedPayload.clientSessionToken || '',
+        syncVersion: Number(approvedPayload.sessionSyncVersion || approvedPayload.syncVersion || serverVersion || 1)
+      };
+      await persistClientSession(sessionPayload);
+      localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
+      localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
+      window.location.href = 'client.html';
+    } catch (error) {
+      if (error?.message === 'rejected') {
+        showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
+      } else {
+        showToast('ยังไม่อนุมัติ (หมดเวลารอ)', 'error');
+      }
+    }
   }
   //* scanner close
 
@@ -2801,6 +2935,10 @@ function getUnitCardClass(unit) {
         const tick = Date.now();
         if ((tick - state.lastClientHeartbeatAt) >= HEARTBEAT_INTERVAL_MS) {
           if (isClientSessionValid()) {
+            if ((tick - state.lastCloudSessionCheckAt) >= HEARTBEAT_INTERVAL_MS) {
+              verifyClientSessionAgainstCloud();
+              state.lastCloudSessionCheckAt = tick;
+            }
             broadcastClientHeartbeat();
             flushClientOpQueue();
           }

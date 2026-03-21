@@ -1146,6 +1146,8 @@
     if (qs('stat-month')) qs('stat-month').textContent = formatMoney(month);
     const cashTotal = state.db.sales.reduce((sum, sale) => sale.method === 'cash' ? sum + Number(sale.total || 0) : sum, 0);
     const transferTotal = state.db.sales.reduce((sum, sale) => sale.method === 'transfer' ? sum + Number(sale.total || 0) : sum, 0);
+    const grandTotal = cashTotal + transferTotal;
+    if (qs('stat-grand-total')) qs('stat-grand-total').textContent = formatMoney(grandTotal);
     if (qs('stat-cash-total')) qs('stat-cash-total').textContent = formatMoney(cashTotal);
     if (qs('stat-transfer-total')) qs('stat-transfer-total').textContent = formatMoney(transferTotal);
 
@@ -1192,15 +1194,14 @@
     const start = qs('search-start')?.value;
     const end = qs('search-end')?.value;
     if (!start || !end) return;
-    if (!state.isPro) {
-      const today = getLocalYYYYMMDD();
-      if (start !== today || end !== today) {
-        qs('search-start').value = today;
-        qs('search-end').value = today;
-      }
+    const rangeStart = start <= end ? start : end;
+    const rangeEnd = start <= end ? end : start;
+    if (start > end) {
+      if (qs('search-start')) qs('search-start').value = rangeStart;
+      if (qs('search-end')) qs('search-end').value = rangeEnd;
     }
     const total = state.db.sales.reduce((sum, sale) => {
-      if (sale.date >= qs('search-start').value && sale.date <= qs('search-end').value) return sum + Number(sale.total || 0);
+      if (sale.date >= rangeStart && sale.date <= rangeEnd) return sum + Number(sale.total || 0);
       return sum;
     }, 0);
     if (qs('search-total')) qs('search-total').textContent = formatMoney(total);

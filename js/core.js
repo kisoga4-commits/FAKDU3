@@ -1958,19 +1958,6 @@
     return queue.length;
   }
 
-  async function sendClientAction(action, { queueOnFail = true } = {}) {
-    if (!IS_CLIENT_NODE) return false;
-    if (!action?.type) return false;
-    if (!isClientSessionValid()) return false;
-    try {
-      state.syncChannel?.postMessage({ type: 'CLIENT_ACTION', action });
-      return true;
-    } catch (_) {
-      if (queueOnFail) await enqueueClientOp(action);
-      return false;
-    }
-  }
-
   async function flushClientOpQueue() {
     if (!IS_CLIENT_NODE || !isClientSessionValid() || !navigator.onLine) return;
     const queue = await loadClientOpQueue();

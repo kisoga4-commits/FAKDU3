@@ -241,6 +241,9 @@
     }
     return random;
   }
+  function normalizeSyncPin(pin = '') {
+    return String(pin || '').replace(/\D/g, '').slice(0, 6);
+  }
   function ensureClientId() {
     let clientId = localStorage.getItem('FAKDU_CLIENT_ID') || '';
     if (!clientId) {
@@ -3020,31 +3023,44 @@ function getUnitCardClass(unit) {
   }
 
   async function submitClientAccessRequest() {
-    const pin = qs('manual-pin')?.value?.trim() || '';
-    if (!pin) return showToast('กรุณากรอก PIN', 'error');
-    const pendingShopId = getPendingMasterShopId();
-    if (!pendingShopId) {
-      return showToast('กรุณาสแกน QR จากเครื่องแม่ก่อน (ต้องมีรหัสร้าน)', 'error');
-    }
+    const rawPin = qs('manual-pin')?.value?.trim() || '';
+    const pin = normalizeSyncPin(rawPin);
+    if (pin.length !== 6) return showToast('PIN ต้องเป็นตัวเลข 6 หลัก', 'error');
+    if (qs('manual-pin')) qs('manual-pin').value = pin;
     const api = resolveFirebaseSyncApi();
     if (!api) return showToast('เชื่อม cloud ไม่ได้', 'error');
     const profile = getClientProfile();
-    let serverVersion = getPendingSyncVersion();
+    let resolvedShopId = '';
+    let serverVersion = 0;
     try {
-      const meta = await api.readSyncMeta(pendingShopId);
+      let pinMap = null;
+      if (typeof api.readSyncPin === 'function') {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          pinMap = await api.readSyncPin(pin);
+          if (pinMap?.shopId && pinMap.active !== false) break;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
+      if (!pinMap?.shopId || pinMap.active === false) {
+        showToast('PIN ไม่ถูกต้อง หรือเครื่องแม่ยังไม่ขึ้น cloud', 'error');
+        return;
+      }
+      resolvedShopId = String(pinMap.shopId || '');
+      serverVersion = Number(pinMap.syncVersion || 0);
+      const meta = await api.readSyncMeta(resolvedShopId);
       const serverPin = String(meta?.currentSyncPin || '');
-      serverVersion = Number(meta?.syncVersion || 0) || serverVersion;
+      serverVersion = Number(meta?.syncVersion || 0) || serverVersion || getPendingSyncVersion();
       if (!serverPin || pin !== serverPin) {
         showToast('PIN ไม่ถูกต้อง', 'error');
         return;
       }
       if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
-      await api.writeJoinRequest(pendingShopId, {
+      await api.writeJoinRequest(resolvedShopId, {
         clientId: profile.clientId,
         profileName: profile.profileName,
         avatar: profile.avatar,
         pin,
-        shopId: pendingShopId,
+        shopId: resolvedShopId,
         syncVersion: serverVersion
       });
     } catch (error) {
@@ -3053,12 +3069,12 @@ function getUnitCardClass(unit) {
       return;
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
-    localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', pendingShopId);
+    localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
     showToast('ส่งคำขอแล้ว รอเครื่องแม่อนุมัติ', 'click');
     try {
       const approvedPayload = await new Promise((resolve, reject) => {
         let timeoutId = null;
-        const stop = api.listenClient(pendingShopId, profile.clientId, (payload) => {
+        const stop = api.listenClient(resolvedShopId, profile.clientId, (payload) => {
           if (!payload) return;
           if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
           if (!payload.approved) return;
@@ -3075,7 +3091,7 @@ function getUnitCardClass(unit) {
         }, 120000);
       });
       const sessionPayload = {
-        shopId: pendingShopId,
+        shopId: resolvedShopId,
         clientId: profile.clientId,
         profileName: profile.profileName,
         clientSessionToken: approvedPayload.clientSessionToken || '',

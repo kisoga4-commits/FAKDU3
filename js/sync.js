@@ -15,6 +15,9 @@
   function uid() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
+  function normalizeSyncPin(pin = '') {
+    return String(pin || '').replace(/\D/g, '').slice(0, 6);
+  }
 
   function resolveApi() {
     const fb = window.firebase;
@@ -24,6 +27,21 @@
     const shopRoot = (shopId = '') => `shops/${shopId}`;
 
     return {
+      async readSyncPin(pin = '') {
+        const safePin = normalizeSyncPin(pin);
+        if (safePin.length !== 6) return null;
+        const snap = await db.ref(`syncPins/${safePin}`).get();
+        if (!snap.exists()) return null;
+        const payload = snap.val() || {};
+        return {
+          pin: safePin,
+          shopId: String(payload.shopId || ''),
+          syncVersion: Number(payload.syncVersion || 0),
+          masterDeviceId: String(payload.masterDeviceId || ''),
+          active: payload.active !== false,
+          updatedAt: Number(payload.updatedAt || 0)
+        };
+      },
       async readSyncMeta(shopId = '') {
         if (!shopId) return null;
         const snap = await db.ref(`${shopRoot(shopId)}/master`).get();
@@ -32,17 +50,39 @@
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
         const safeVersion = Number(meta.syncVersion || 1);
+        const safePin = normalizeSyncPin(meta.currentSyncPin || '');
+        const masterPath = `${shopRoot(shopId)}/master`;
+        const prevSnap = await db.ref(masterPath).get();
+        const prevPin = normalizeSyncPin(prevSnap.val()?.currentSyncPin || '');
         const payload = {
           shopId,
           shopName: meta.shopName || 'FAKDU',
           masterDeviceId: meta.masterDeviceId || '',
-          currentSyncPin: meta.currentSyncPin || '',
+          currentSyncPin: safePin,
           syncVersion: safeVersion,
           approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
           clientSessions: (meta.clientSessions && typeof meta.clientSessions === 'object') ? meta.clientSessions : {},
           updatedAt: Date.now()
         };
-        await db.ref(`${shopRoot(shopId)}/master`).set(payload);
+        await db.ref(masterPath).set(payload);
+        if (safePin) {
+          await db.ref(`syncPins/${safePin}`).set({
+            shopId,
+            syncVersion: safeVersion,
+            masterDeviceId: payload.masterDeviceId,
+            active: true,
+            updatedAt: Date.now()
+          });
+        }
+        if (prevPin && prevPin !== safePin) {
+          await db.ref(`syncPins/${prevPin}`).update({
+            shopId,
+            syncVersion: safeVersion,
+            masterDeviceId: payload.masterDeviceId,
+            active: false,
+            updatedAt: Date.now()
+          });
+        }
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};

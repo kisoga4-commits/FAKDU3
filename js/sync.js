@@ -28,12 +28,8 @@
 
     return {
       async readSyncPin(pin = '') {
-
         const safePin = normalizeSyncPin(pin);
         if (safePin.length !== 6) return null;
-
-        const safePin = String(pin || '').trim();
-        if (!safePin) return null;
 
         const snap = await db.ref(`syncPins/${safePin}`).get();
         if (!snap.exists()) return null;
@@ -55,16 +51,21 @@
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
         const safeVersion = Number(meta.syncVersion || 1);
-
         const safePin = normalizeSyncPin(meta.currentSyncPin || '');
         const masterPath = `${shopRoot(shopId)}/master`;
         const prevSnap = await db.ref(masterPath).get();
         const prevPin = normalizeSyncPin(prevSnap.val()?.currentSyncPin || '');
-
-        const safePin = String(meta.currentSyncPin || '').trim();
-        const masterPath = `${shopRoot(shopId)}/master`;
-        const prevSnap = await db.ref(masterPath).get();
-        const prevPin = String(prevSnap.val()?.currentSyncPin || '').trim();
+        const safeClientSessions = (meta.clientSessions && typeof meta.clientSessions === 'object')
+          ? Object.entries(meta.clientSessions).reduce((acc, [clientId, session]) => {
+            if (!clientId || !session || typeof session !== 'object') return acc;
+            acc[clientId] = {
+              clientSessionToken: session.clientSessionToken || '',
+              sessionSyncVersion: Number(session.sessionSyncVersion || safeVersion),
+              approvedAt: Number(session.approvedAt || Date.now())
+            };
+            return acc;
+          }, {})
+          : {};
 
         const payload = {
           shopId,
@@ -73,7 +74,7 @@
           currentSyncPin: safePin,
           syncVersion: safeVersion,
           approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
-          clientSessions: (meta.clientSessions && typeof meta.clientSessions === 'object') ? meta.clientSessions : {},
+          clientSessions: safeClientSessions,
           updatedAt: Date.now()
         };
         await db.ref(masterPath).set(payload);

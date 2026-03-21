@@ -613,7 +613,7 @@
 
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return 'border-emerald-300';
+    if (cart.length > 0) return 'border-amber-300';
     if (unit.orders.length > 0) return 'border-emerald-300';
     if (unit.checkoutRequested) return 'border-emerald-300';
     return 'bg-white border-gray-200';
@@ -621,9 +621,9 @@
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return { cls: 'status-active', label: 'ไม่ว่าง' };
-    if (unit.checkoutRequested) return { cls: 'status-active', label: 'ไม่ว่าง' };
-    if (unit.orders.length > 0) return { cls: 'status-active', label: 'ไม่ว่าง' };
+    if (cart.length > 0) return { cls: 'status-draft', label: 'ออเดอร์ค้าง' };
+    if (unit.checkoutRequested) return { cls: 'status-active', label: 'กำลังใช้งาน' };
+    if (unit.orders.length > 0) return { cls: 'status-active', label: 'กำลังใช้งาน' };
     return { cls: 'status-idle', label: 'ว่าง' };
   }
 
@@ -654,8 +654,12 @@
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
       const statusMeta = getUnitStatusMeta(unit);
-      const statusText = unit.orders.length > 0 || cart.length > 0 || unit.checkoutRequested ? '' : 'ว่าง';
-      const statusPillClass = 'bg-gray-100 text-gray-500';
+      const statusText = statusMeta.label;
+      const statusPillClass = statusMeta.cls === 'status-draft'
+        ? 'bg-amber-100 text-amber-700'
+        : statusMeta.cls === 'status-active'
+          ? 'bg-emerald-100 text-emerald-700'
+          : 'bg-gray-100 text-gray-500';
       const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
         : unit.orders.length > 0
@@ -670,7 +674,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              ${statusText ? `<div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>` : ''}
+              <div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -1804,6 +1808,7 @@
 
   function applyMasterSnapshot(payload) {
     if (!payload || !IS_CLIENT_NODE) return;
+    if (!isClientSessionValid()) return;
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
     if (payload.shopId) state.db.shopId = payload.shopId;
     state.db.shopName = payload.shopName || state.db.shopName;
@@ -2431,6 +2436,11 @@
         if (qs('sys-client-name')) qs('sys-client-name').value = profile.profileName;
         if (qs('client-device-name')) qs('client-device-name').textContent = profile.profileName;
         if (qs('client-avatar') && profile.avatar) qs('client-avatar').src = profile.avatar;
+        if (!isClientSessionValid()) {
+          state.db.items = [];
+          state.db.units = [];
+          state.db.unitCount = 0;
+        }
       }
       const today = getLocalYYYYMMDD();
       if (qs('search-start')) qs('search-start').value = today;
@@ -2438,7 +2448,9 @@
       renderAnalytics();
       startLiveTimers();
       switchTab('customer', qs('tab-customer'));
-      showToast('FAKDU พร้อมใช้งาน', 'success');
+      if (!IS_CLIENT_NODE || isClientSessionValid()) {
+        showToast('FAKDU พร้อมใช้งาน', 'success');
+      }
     } catch (error) {
       console.error(error);
       showToast('โหลดระบบไม่สำเร็จ', 'error');

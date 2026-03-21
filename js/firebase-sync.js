@@ -21,19 +21,32 @@
     if (!fb || typeof fb.initializeApp !== 'function' || typeof fb.database !== 'function') return null;
     if (!fb.apps || !fb.apps.length) fb.initializeApp(firebaseConfig);
     const db = fb.database();
+    function shopRoot(shopId = '') {
+      return `shops/${shopId}`;
+    }
     return {
       async readSyncMeta(shopId = '') {
         if (!shopId) return null;
-        const snap = await db.ref(`fakduSync/${shopId}/meta`).get();
+        const snap = await db.ref(`${shopRoot(shopId)}/master`).get();
         return snap.exists() ? snap.val() : null;
       },
       async writeSyncMeta(shopId = '', meta = {}) {
         if (!shopId) return;
-        await db.ref(`fakduSync/${shopId}/meta`).set({ ...meta, updatedAt: Date.now() });
+        const safeVersion = Number(meta.syncVersion || 1);
+        const payload = {
+          shopId,
+          shopName: meta.shopName || 'FAKDU',
+          masterDeviceId: meta.masterDeviceId || '',
+          currentSyncPin: meta.currentSyncPin || '',
+          syncVersion: safeVersion,
+          approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
+          updatedAt: Date.now()
+        };
+        await db.ref(`${shopRoot(shopId)}/master`).set(payload);
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};
-        const ref = db.ref(`fakduSync/${shopId}/events`).limitToLast(100);
+        const ref = db.ref(`${shopRoot(shopId)}/events`).limitToLast(100);
         const handler = (snap) => {
           const payload = snap.val();
           if (!payload || Number(payload.createdAt || 0) < minTs) return;
@@ -44,10 +57,44 @@
       },
       async send(shopId = '', message = {}) {
         if (!shopId || !message?.type) return;
-        await db.ref(`fakduSync/${shopId}/events/${uid()}`).set({
+        await db.ref(`${shopRoot(shopId)}/events/${uid()}`).set({
           ...message,
           id: message.id || uid(),
           createdAt: Date.now()
+        });
+      },
+      async writeJoinRequest(shopId = '', client = {}) {
+        if (!shopId || !client?.clientId) return;
+        await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
+          ...client,
+          requestedAt: Date.now()
+        });
+      },
+      async upsertClient(shopId = '', client = {}) {
+        if (!shopId || !client?.clientId) return;
+        await db.ref(`${shopRoot(shopId)}/clients/${client.clientId}`).set({
+          ...client,
+          updatedAt: Date.now()
+        });
+      },
+      async clearClientSessions(shopId = '') {
+        if (!shopId) return;
+        await db.ref(`${shopRoot(shopId)}/clients`).remove();
+      },
+      async writeOperation(shopId = '', operation = {}) {
+        if (!shopId || !operation?.type) return;
+        const opId = String(operation.opId || operation.id || uid());
+        await db.ref(`${shopRoot(shopId)}/operations/${opId}`).set({
+          ...operation,
+          opId,
+          createdAt: Date.now()
+        });
+      },
+      async writeSnapshot(shopId = '', snapshot = {}) {
+        if (!shopId) return;
+        await db.ref(`${shopRoot(shopId)}/snapshot`).set({
+          ...snapshot,
+          updatedAt: Date.now()
         });
       }
     };

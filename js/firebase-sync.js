@@ -79,11 +79,13 @@
       },
       async writeJoinRequest(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
+        const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
           ...client,
+          type: 'CLIENT_ACCESS_REQUEST',
           status: 'pending',
-          requestedAt: Date.now(),
-          updatedAt: Date.now()
+          requestedAt: Number(client.requestedAt || now),
+          updatedAt: now
         });
       },
       listenJoinRequests(shopId = '', onRequest = () => {}) {
@@ -126,6 +128,7 @@
         if (!shopId || !client?.clientId) return;
         await db.ref(`${shopRoot(shopId)}/clients/${client.clientId}`).set({
           ...client,
+          sessionVersion: Number(client.sessionVersion || client.sessionSyncVersion || client.syncVersion || 1),
           updatedAt: Date.now()
         });
       },
@@ -137,10 +140,12 @@
       async writeOperation(shopId = '', operation = {}) {
         if (!shopId || !operation?.type) return;
         const opId = String(operation.opId || operation.id || uid());
+        const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/operations/${opId}`).set({
           ...operation,
           opId,
-          createdAt: Date.now()
+          timestamp: Number(operation.timestamp || now),
+          createdAt: now
         });
       },
       async writeSnapshot(shopId = '', snapshot = {}) {

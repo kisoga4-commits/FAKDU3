@@ -1,0 +1,49 @@
+{
+  "rules": {
+    "syncPins": {
+      "$pin": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['shopId','masterDeviceId','syncVersion','active']) && newData.child('shopId').isString() && newData.child('masterDeviceId').isString() && newData.child('syncVersion').isNumber() && newData.child('active').isBoolean()"
+      }
+    },
+    "shops": {
+      "$shopId": {
+        "master": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.hasChildren(['masterDeviceId','currentSyncPin','syncVersion']) && newData.child('masterDeviceId').isString() && newData.child('currentSyncPin').isString() && newData.child('syncVersion').isNumber()"
+        },
+        "joinRequests": {
+          "$clientId": {
+            ".read": true,
+            ".write": true,
+            ".validate": "newData.hasChildren(['clientId','profileName','pin','requestedAt','syncVersion','type']) && newData.child('clientId').val() === $clientId && newData.child('profileName').isString() && newData.child('pin').isString() && newData.child('requestedAt').isNumber() && newData.child('syncVersion').isNumber() && newData.child('type').val() === 'CLIENT_ACCESS_REQUEST'"
+          }
+        },
+        "clients": {
+          "$clientId": {
+            ".read": true,
+            ".write": true,
+            ".validate": "newData.hasChildren(['approved','profileName','sessionVersion']) && newData.child('approved').isBoolean() && newData.child('profileName').isString() && newData.child('sessionVersion').isNumber()"
+          }
+        },
+        "snapshot": {
+          ".read": true,
+          ".write": true
+        },
+        "operations": {
+          "$opId": {
+            ".read": true,
+            ".write": true,
+            ".validate": "newData.hasChildren(['opId','type','timestamp']) && newData.child('opId').val() === $opId && newData.child('type').isString() && newData.child('timestamp').isNumber()"
+          }
+        },
+        "alerts": {
+          ".read": true,
+          ".write": true
+        }
+      }
+    }
+  }
+}

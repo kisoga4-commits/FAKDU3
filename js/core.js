@@ -1948,6 +1948,29 @@ function getUnitCardClass(unit) {
     } catch (_) {}
   }
 
+  async function ensureCloudSnapshotAndOperations() {
+    if (IS_CLIENT_NODE || !state.db.shopId) return;
+    const api = resolveFirebaseSyncApi();
+    if (!api) return;
+    try {
+      const existing = typeof api.readSnapshot === 'function'
+        ? await api.readSnapshot(state.db.shopId)
+        : null;
+      if (!existing || typeof existing !== 'object') {
+        await api.writeSnapshot(state.db.shopId, makeCloudSnapshotPayload());
+      }
+    } catch (_) {}
+    try {
+      await api.writeOperation(state.db.shopId, {
+        type: 'SYNC_STRUCTURE_READY',
+        shopId: state.db.shopId,
+        deviceId: getCurrentDeviceId(),
+        profileName: getCurrentProfileName(),
+        role: getActorLabel()
+      });
+    } catch (_) {}
+  }
+
   async function bindSyncChannel() {
     try {
       if (state.syncChannel) state.syncChannel.close();
@@ -2002,9 +2025,12 @@ function getUnitCardClass(unit) {
         if (clientId) {
           try {
             state.stopClientApproveListener = api.listenClient(state.db.shopId, clientId, (payload) => {
+              const isApproved = payload?.approved === true;
+              const isRejected = payload?.approved === false && String(payload?.status || '').toLowerCase() === 'rejected';
+              if (!isApproved && !isRejected) return;
               handleMasterApproval({
                 clientId,
-                approved: Boolean(payload?.approved),
+                approved: isApproved,
                 syncKey: payload?.syncKey || state.db.sync.currentSyncPin,
                 shopId: state.db.shopId,
                 syncVersion: Number(payload?.sessionSyncVersion || payload?.syncVersion || state.db.sync.syncVersion || 1),
@@ -2018,7 +2044,10 @@ function getUnitCardClass(unit) {
         }
       }
     }
-    if (!IS_CLIENT_NODE) await syncMasterMetaToFirebase();
+    if (!IS_CLIENT_NODE) {
+      await syncMasterMetaToFirebase();
+      await ensureCloudSnapshotAndOperations();
+    }
   }
 
   function broadcastSnapshot() {
@@ -2495,6 +2524,19 @@ function getUnitCardClass(unit) {
         requestedAt: Date.now()
       });
     }
+    const api = resolveFirebaseSyncApi();
+    if (api && state.db.shopId) {
+      api.upsertClient(state.db.shopId, {
+        clientId: client.clientId,
+        profileName: client.profileName || client.name || client.clientId,
+        avatar: client.avatar || '',
+        approved: false,
+        status: 'pending',
+        pin: client.pin || '',
+        syncVersion: Number(client.syncVersion || state.db.sync.syncVersion || 1),
+        requestedAt: Date.now()
+      }).catch(() => {});
+    }
     renderClientApprovalList();
     showToast('มีคำขอเครื่องลูกใหม่', 'click');
   }
@@ -2713,6 +2755,7 @@ function getUnitCardClass(unit) {
         profileName: client.profileName || client.name || client.clientId,
         avatar: client.avatar || '',
         approved: true,
+        status: 'approved',
         clientSessionToken: client.clientSessionToken,
         sessionSyncVersion: Number(client.sessionSyncVersion || state.db.sync.syncVersion || 1),
         approvedAt: Date.now(),
@@ -2764,6 +2807,7 @@ function getUnitCardClass(unit) {
       api.upsertClient(state.db.shopId, {
         clientId,
         approved: false,
+        status: 'rejected',
         rejectedAt: Date.now(),
         rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
       }).catch(() => {});

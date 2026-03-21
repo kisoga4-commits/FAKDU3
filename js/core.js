@@ -518,9 +518,9 @@
 
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
+    if (cart.length > 0) return 'unit-card-draft-warning border-amber-300';
     if (unit.checkoutRequested) return 'bg-amber-50 border-amber-300';
     if (unit.orders.length > 0) return 'bg-emerald-50 border-emerald-300';
-    if (cart.length > 0) return 'bg-blue-50 border-blue-200';
     return 'bg-white border-gray-200';
   }
 
@@ -532,17 +532,17 @@
       const cart = state.db.carts[unit.id] || [];
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
-      const statusText = unit.checkoutRequested
+      const statusText = cart.length > 0
+        ? 'รอส่งออร์เดอร์'
+        : unit.checkoutRequested
         ? 'รอเช็คบิล'
         : unit.orders.length > 0
           ? 'กำลังใช้งาน'
-          : cart.length > 0
-            ? 'มีตะกร้าค้าง'
-            : 'ว่าง';
-      const secondary = unit.orders.length > 0
-        ? `ยอดรวม ฿${formatMoney(total)}`
-        : cart.length > 0
+          : 'ว่าง';
+      const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
+        : unit.orders.length > 0
+          ? `ยอดรวม ฿${formatMoney(total)}`
           : 'พร้อมรับออร์เดอร์';
       const timeText = unit.startTime ? formatDurationFrom(unit.startTime) : '-';
       return `
@@ -553,7 +553,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[10px] px-2 py-1 rounded-full font-black ${unit.checkoutRequested ? 'bg-amber-100 text-amber-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : cart.length > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}">${statusText}</div>
+              <div class="text-[10px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-amber-100 text-amber-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -713,9 +713,20 @@
     const qty = cart.reduce((sum, row) => sum + row.qty, 0);
     if (qs('cart-total')) qs('cart-total').textContent = formatMoney(total);
     if (qs('cart-count')) qs('cart-count').textContent = String(qty);
+    const sendBtn = qs('btn-send-order');
+    if (sendBtn) {
+      const enabled = qty > 0;
+      sendBtn.disabled = !enabled;
+      sendBtn.classList.toggle('is-disabled', !enabled);
+      sendBtn.classList.toggle('is-ready', enabled);
+    }
   }
 
   function reviewCart() {
+    confirmOrderSend();
+  }
+
+  function openReviewCartModal() {
     const cart = state.activeUnitId ? (state.db.carts[state.activeUnitId] || []) : [];
     if (!cart.length) return showToast('ตะกร้าว่าง', 'error');
     if (qs('review-unit-id')) qs('review-unit-id').textContent = String(state.activeUnitId);
@@ -753,7 +764,7 @@
     }
     state.db.carts[state.activeUnitId] = cart;
     updateCartTotal();
-    reviewCart();
+    openReviewCartModal();
     saveDb({ render: true, sync: false });
   }
 
@@ -803,7 +814,7 @@
     const count = qs('shop-request-count');
     if (!queue || !count) return;
     const activeUnits = state.db.units
-      .filter((unit) => unit.orders.length > 0)
+      .filter((unit) => unit.orders.length > 0 || (state.db.carts[unit.id] || []).length > 0)
       .sort((a, b) => Number(b.checkoutRequested) - Number(a.checkoutRequested) || (a.startTime || 0) - (b.startTime || 0));
     count.textContent = `${activeUnits.length} รายการ`;
     if (!activeUnits.length) {
@@ -811,24 +822,27 @@
       return;
     }
     queue.innerHTML = activeUnits.map((unit) => {
+      const cart = state.db.carts[unit.id] || [];
+      const hasDraft = cart.length > 0;
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
+      const draftTotal = cart.reduce((sum, row) => sum + row.total, 0);
       return `
-        <div class="bg-white p-4 rounded-[24px] border shadow-sm relative ${unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
+        <div class="bg-white p-4 rounded-[24px] border shadow-sm relative ${hasDraft ? 'draft-warning-card border-amber-300' : unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
           <div class="flex items-start justify-between gap-3 mb-3">
             <div>
               <div class="font-black text-2xl text-gray-800">${getUnitLabel(unit.id)}</div>
-              <div class="text-[11px] font-bold ${unit.checkoutRequested ? 'text-amber-600' : 'text-gray-400'}">${unit.checkoutRequested ? 'ลูกค้าขอเช็คบิลแล้ว' : 'ยังไม่ได้กดเช็คบิลจากลูก'}</div>
+              <div class="text-[11px] font-bold ${hasDraft ? 'text-amber-700' : unit.checkoutRequested ? 'text-amber-600' : 'text-gray-400'}">${hasDraft ? 'มีรายการค้างในตะกร้า (Draft)' : unit.checkoutRequested ? 'ลูกค้าขอเช็คบิลแล้ว' : 'ยังไม่ได้กดเช็คบิลจากลูก'}</div>
             </div>
             <div class="text-right">
-              <div class="font-black text-xl theme-text">฿${formatMoney(total)}</div>
+              <div class="font-black text-xl ${hasDraft ? 'text-amber-700' : 'theme-text'}">฿${formatMoney(hasDraft ? draftTotal : total)}</div>
               <div class="text-[10px] text-gray-400 font-bold">${formatDurationFrom(unit.startTime)}</div>
             </div>
           </div>
-          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
+          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${hasDraft ? cart.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ') : unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
           <div class="flex gap-2">
-            <button onclick="openCheckout(${unit.id})" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">เปิดบิล</button>
-            <button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95">${unit.checkoutRequested ? 'ยกเลิกขอเช็ค' : 'ขอเช็คบิล'}</button>
+            <button onclick="${hasDraft ? `openTable(${unit.id})` : `openCheckout(${unit.id})`}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${hasDraft ? 'ไปส่งออร์เดอร์' : 'เปิดบิล'}</button>
+            <button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${hasDraft ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ยกเลิกขอเช็ค' : 'ขอเช็คบิล'}</button>
           </div>
         </div>
       `;
@@ -1900,6 +1914,7 @@
     changeGridZoom,
     openTable,
     reviewCart,
+    openReviewCartModal,
     editCartItem,
     confirmOrderSend,
     openCheckout,

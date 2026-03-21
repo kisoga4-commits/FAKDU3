@@ -2515,9 +2515,15 @@ function getUnitCardClass(unit) {
 
   function handleClientAccessRequest(client) {
     if (!client?.clientId) return;
-    if (String(client.pin || '') !== String(state.db.sync.currentSyncPin || '')) return;
     if (String(client.shopId || '') !== String(state.db.shopId || '')) return;
-    if (Number(client.syncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) return;
+    const requestedStatus = String(client.status || 'pending').toLowerCase();
+    if (requestedStatus && requestedStatus !== 'pending') return;
+    const activePin = String(state.db.sync.currentSyncPin || '');
+    const incomingPin = String(client.pin || '');
+    if (incomingPin && incomingPin !== activePin) return;
+    const activeVersion = Number(state.db.sync.syncVersion || 1);
+    const incomingVersion = Number(client.syncVersion || activeVersion);
+    if (incomingVersion !== activeVersion) return;
     if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
       return;
     }

@@ -1850,8 +1850,11 @@ function getUnitCardClass(unit) {
       await api.writeSyncMeta(state.db.shopId, {
         shopId: state.db.shopId,
         shopName: state.db.shopName || 'FAKDU',
+        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
         currentSyncPin: state.db.sync.currentSyncPin || '',
         syncVersion: Number(state.db.sync.syncVersion || 1),
+        approvedClients: state.db.sync.approvedClients || [],
+        clientSession: null,
         clientSessions
       });
     } catch (_) {}
@@ -1888,6 +1891,7 @@ function getUnitCardClass(unit) {
     try {
       const payload = {
         shopId: state.db.shopId,
+        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
         shopName: state.db.shopName,
         theme: state.db.theme,
         bgColor: state.db.bgColor,
@@ -1899,6 +1903,8 @@ function getUnitCardClass(unit) {
         salesCount: state.db.sales.length,
         syncPin: state.db.sync.currentSyncPin,
         syncVersion: Number(state.db.sync.syncVersion || 1),
+        approvedClients: state.db.sync.approvedClients || [],
+        clientSession: null,
         at: Date.now()
       };
       emitSyncMessage({
@@ -1922,6 +1928,7 @@ function getUnitCardClass(unit) {
 
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
     if (payload.shopId) state.db.shopId = payload.shopId;
+    if (payload.masterDeviceId) state.db.sync.masterDeviceId = payload.masterDeviceId;
     state.db.shopName = payload.shopName || state.db.shopName;
     state.db.theme = payload.theme || state.db.theme;
     state.db.bgColor = payload.bgColor || state.db.bgColor;
@@ -1932,6 +1939,7 @@ function getUnitCardClass(unit) {
       state.db.sync.currentSyncPin = payload.syncPin;
       state.db.sync.key = payload.syncPin;
     }
+    if (Array.isArray(payload.approvedClients)) state.db.sync.approvedClients = payload.approvedClients;
     if (Array.isArray(payload.items)) state.db.items = payload.items;
     if (Array.isArray(payload.units)) {
       state.db.units = payload.units.map((unit, index) => normalizeUnit(unit, index + 1));
@@ -1953,18 +1961,19 @@ function getUnitCardClass(unit) {
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       if (payload.syncKey) localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', payload.syncKey);
       if (payload.shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', payload.shopId);
-      localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify({
+      const sessionPayload = {
         shopId: payload.shopId || state.db.shopId || '',
         clientId,
         profileName: payload.profileName || getClientProfile().profileName,
         clientSessionToken: payload.clientSessionToken || '',
         syncVersion: Number(payload.syncVersion || 1)
-      }));
+      };
+      await persistClientSession(sessionPayload);
       state.db.sync.clientSession = {
-        shopId: payload.shopId || state.db.shopId || '',
+        shopId: sessionPayload.shopId || state.db.shopId || '',
         clientId,
-        clientSessionToken: payload.clientSessionToken || '',
-        syncVersion: Number(payload.syncVersion || 1)
+        clientSessionToken: sessionPayload.clientSessionToken || '',
+        syncVersion: Number(sessionPayload.syncVersion || 1)
       };
       localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       await clearClientOpQueue();
@@ -1995,6 +2004,33 @@ function getUnitCardClass(unit) {
     } catch (_) {
       return null;
     }
+  }
+
+  async function persistClientSession(session = null) {
+    if (session && typeof session === 'object') {
+      localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));
+    } else {
+      localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    }
+    const dbApi = resolveDbApi();
+    if (dbApi && typeof dbApi.saveClientSession === 'function') {
+      try {
+        await dbApi.saveClientSession(session && typeof session === 'object' ? session : null);
+      } catch (_) {}
+    }
+  }
+
+  async function hydrateClientSessionFromDb() {
+    if (!IS_CLIENT_NODE) return;
+    if (getStoredClientSession()?.clientSessionToken) return;
+    const dbApi = resolveDbApi();
+    if (!dbApi || typeof dbApi.loadClientSession !== 'function') return;
+    try {
+      const dbSession = await dbApi.loadClientSession();
+      if (dbSession && dbSession.clientSessionToken) {
+        localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(dbSession));
+      }
+    } catch (_) {}
   }
 
   function isClientSessionValid() {
@@ -2075,7 +2111,7 @@ function getUnitCardClass(unit) {
 
   async function invalidateClientSession(reason = '') {
     localStorage.setItem('FAKDU_CLIENT_APPROVED', 'false');
-    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    await persistClientSession(null);
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
     await clearClientOpQueue();
@@ -2430,14 +2466,27 @@ function getUnitCardClass(unit) {
 
     clearTimeout(state.syncButtonResetTimer);
     setTimeout(() => {
+      if (!onlineClients.length) {
+        state.db.sync.lastCheck = {
+          status: 'error',
+          text: 'ยังยืนยัน Sync จริงไม่ได้',
+          hint: 'ยังไม่มีเครื่องลูกออนไลน์ ให้เชื่อมต่อเครื่องลูกก่อนแล้วค่อยเช็คอีกครั้ง',
+          at: Date.now()
+        };
+        setSyncButtonState('error');
+        updateSyncCheckStatusUi();
+        state.syncButtonResetTimer = setTimeout(() => setSyncButtonState('idle'), 10000);
+        saveDb({ render: false, sync: false });
+        return;
+      }
       const hasPendingCart = Object.values(state.db.carts).some((cart) => Array.isArray(cart) && cart.length > 0);
       const hasRed = onlineClients.some((client) => Number(client.pendingOps || 0) > 0);
-      const ok = onlineClients.length > 0 ? !hasRed : !hasPendingCart;
+      const ok = !hasRed && !hasPendingCart;
       if (ok) {
         state.db.sync.lastCheck = {
           status: 'success',
           text: 'ข้อมูลตรงกันแล้ว',
-          hint: onlineClients.length ? `ตรวจแล้ว ${onlineClients.length} เครื่อง` : 'ไม่มีเครื่องลูกออนไลน์ แต่ข้อมูลฝั่งแม่ไม่มีรายการค้าง',
+          hint: `ตรวจแล้ว ${onlineClients.length} เครื่อง`,
           at: Date.now()
         };
         setSyncButtonState('success');
@@ -2457,8 +2506,11 @@ function getUnitCardClass(unit) {
   }
 
   function requestNewSyncKey() {
-    const shouldProceed = window.confirm('ยืนยันสร้าง PIN Sync ใหม่?\nเครื่องลูกที่เชื่อมอยู่จะต้องขออนุมัติใหม่ทั้งหมด');
-    if (!shouldProceed) return;
+    openModal('modal-sync-key-confirm');
+  }
+
+  function confirmNewSyncKey() {
+    closeModal('modal-sync-key-confirm');
     const today = getLocalYYYYMMDD();
     state.db.sync.keyResetDate = today;
     state.db.sync.keyResetCount = Number(state.db.sync.keyResetCount || 0) + 1;
@@ -2600,7 +2652,7 @@ function getUnitCardClass(unit) {
   }
 
   async function clientLogout() {
-    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    await persistClientSession(null);
     localStorage.removeItem('FAKDU_CLIENT_APPROVED');
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem('FAKDU_PENDING_MASTER_SHOP_ID');
@@ -2701,6 +2753,7 @@ function getUnitCardClass(unit) {
         }
       }
       state.hwid = await resolveDbApi().getDeviceId();
+      await hydrateClientSessionFromDb();
       const raw = await resolveDbApi().load();
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();
@@ -2834,6 +2887,7 @@ function getUnitCardClass(unit) {
     handleLockedFeatureClick,
     triggerSyncCheck,
     requestNewSyncKey,
+    confirmNewSyncKey,
     openClientScanner,
     closeClientScanner,
     submitClientAccessRequest,

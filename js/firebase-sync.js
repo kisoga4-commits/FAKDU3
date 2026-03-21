@@ -61,7 +61,9 @@
         const ref = db.ref(`${shopRoot(shopId)}/events`).limitToLast(100);
         const handler = (snap) => {
           const payload = snap.val();
-          if (!payload || Number(payload.createdAt || 0) < minTs) return;
+          if (!payload) return;
+          const isAccessRequest = payload.type === 'CLIENT_ACCESS_REQUEST';
+          if (!isAccessRequest && Number(payload.createdAt || 0) < minTs) return;
           onMessage(payload);
         };
         ref.on('child_added', handler);
@@ -79,8 +81,46 @@
         if (!shopId || !client?.clientId) return;
         await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
           ...client,
-          requestedAt: Date.now()
+          status: 'pending',
+          requestedAt: Date.now(),
+          updatedAt: Date.now()
         });
+      },
+      listenJoinRequests(shopId = '', onRequest = () => {}) {
+        if (!shopId) return () => {};
+        const ref = db.ref(`${shopRoot(shopId)}/joinRequests`);
+        const handler = (snap) => {
+          const payload = snap.val();
+          if (!payload || !payload.clientId) return;
+          onRequest(payload);
+        };
+        ref.on('child_added', handler);
+        ref.on('child_changed', handler);
+        return () => {
+          ref.off('child_added', handler);
+          ref.off('child_changed', handler);
+        };
+      },
+      listenClient(shopId = '', clientId = '', onClient = () => {}) {
+        if (!shopId || !clientId) return () => {};
+        const ref = db.ref(`${shopRoot(shopId)}/clients/${clientId}`);
+        const handler = (snap) => {
+          if (!snap.exists()) return;
+          onClient(snap.val());
+        };
+        ref.on('value', handler);
+        return () => ref.off('value', handler);
+      },
+      listenOperations(shopId = '', minTs = Date.now(), onOperation = () => {}) {
+        if (!shopId) return () => {};
+        const ref = db.ref(`${shopRoot(shopId)}/operations`).limitToLast(200);
+        const handler = (snap) => {
+          const payload = snap.val();
+          if (!payload || Number(payload.createdAt || 0) < minTs) return;
+          onOperation(payload);
+        };
+        ref.on('child_added', handler);
+        return () => ref.off('child_added', handler);
       },
       async upsertClient(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
@@ -92,6 +132,7 @@
       async clearClientSessions(shopId = '') {
         if (!shopId) return;
         await db.ref(`${shopRoot(shopId)}/clients`).remove();
+        await db.ref(`${shopRoot(shopId)}/joinRequests`).remove();
       },
       async writeOperation(shopId = '', operation = {}) {
         if (!shopId || !operation?.type) return;

@@ -49,7 +49,9 @@
         const ref = db.ref(`${shopRoot(shopId)}/events`).limitToLast(150);
         const handler = (snap) => {
           const payload = snap.val();
-          if (!payload || Number(payload.createdAt || 0) < minTs) return;
+          if (!payload) return;
+          const isAccessRequest = payload.type === 'CLIENT_ACCESS_REQUEST';
+          if (!isAccessRequest && Number(payload.createdAt || 0) < minTs) return;
           onMessage(payload);
         };
         ref.on('child_added', handler);

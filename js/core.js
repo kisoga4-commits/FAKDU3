@@ -1850,8 +1850,11 @@ function getUnitCardClass(unit) {
       await api.writeSyncMeta(state.db.shopId, {
         shopId: state.db.shopId,
         shopName: state.db.shopName || 'FAKDU',
+        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
         currentSyncPin: state.db.sync.currentSyncPin || '',
         syncVersion: Number(state.db.sync.syncVersion || 1),
+        approvedClients: state.db.sync.approvedClients || [],
+        clientSession: null,
         clientSessions
       });
     } catch (_) {}
@@ -1888,6 +1891,7 @@ function getUnitCardClass(unit) {
     try {
       const payload = {
         shopId: state.db.shopId,
+        masterDeviceId: state.db.sync.masterDeviceId || state.hwid || '',
         shopName: state.db.shopName,
         theme: state.db.theme,
         bgColor: state.db.bgColor,
@@ -1899,6 +1903,8 @@ function getUnitCardClass(unit) {
         salesCount: state.db.sales.length,
         syncPin: state.db.sync.currentSyncPin,
         syncVersion: Number(state.db.sync.syncVersion || 1),
+        approvedClients: state.db.sync.approvedClients || [],
+        clientSession: null,
         at: Date.now()
       };
       emitSyncMessage({
@@ -1922,6 +1928,7 @@ function getUnitCardClass(unit) {
 
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
     if (payload.shopId) state.db.shopId = payload.shopId;
+    if (payload.masterDeviceId) state.db.sync.masterDeviceId = payload.masterDeviceId;
     state.db.shopName = payload.shopName || state.db.shopName;
     state.db.theme = payload.theme || state.db.theme;
     state.db.bgColor = payload.bgColor || state.db.bgColor;
@@ -1932,6 +1939,7 @@ function getUnitCardClass(unit) {
       state.db.sync.currentSyncPin = payload.syncPin;
       state.db.sync.key = payload.syncPin;
     }
+    if (Array.isArray(payload.approvedClients)) state.db.sync.approvedClients = payload.approvedClients;
     if (Array.isArray(payload.items)) state.db.items = payload.items;
     if (Array.isArray(payload.units)) {
       state.db.units = payload.units.map((unit, index) => normalizeUnit(unit, index + 1));
@@ -1953,18 +1961,19 @@ function getUnitCardClass(unit) {
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       if (payload.syncKey) localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', payload.syncKey);
       if (payload.shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', payload.shopId);
-      localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify({
+      const sessionPayload = {
         shopId: payload.shopId || state.db.shopId || '',
         clientId,
         profileName: payload.profileName || getClientProfile().profileName,
         clientSessionToken: payload.clientSessionToken || '',
         syncVersion: Number(payload.syncVersion || 1)
-      }));
+      };
+      await persistClientSession(sessionPayload);
       state.db.sync.clientSession = {
-        shopId: payload.shopId || state.db.shopId || '',
+        shopId: sessionPayload.shopId || state.db.shopId || '',
         clientId,
-        clientSessionToken: payload.clientSessionToken || '',
-        syncVersion: Number(payload.syncVersion || 1)
+        clientSessionToken: sessionPayload.clientSessionToken || '',
+        syncVersion: Number(sessionPayload.syncVersion || 1)
       };
       localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       await clearClientOpQueue();
@@ -1995,6 +2004,33 @@ function getUnitCardClass(unit) {
     } catch (_) {
       return null;
     }
+  }
+
+  async function persistClientSession(session = null) {
+    if (session && typeof session === 'object') {
+      localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));
+    } else {
+      localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    }
+    const dbApi = resolveDbApi();
+    if (dbApi && typeof dbApi.saveClientSession === 'function') {
+      try {
+        await dbApi.saveClientSession(session && typeof session === 'object' ? session : null);
+      } catch (_) {}
+    }
+  }
+
+  async function hydrateClientSessionFromDb() {
+    if (!IS_CLIENT_NODE) return;
+    if (getStoredClientSession()?.clientSessionToken) return;
+    const dbApi = resolveDbApi();
+    if (!dbApi || typeof dbApi.loadClientSession !== 'function') return;
+    try {
+      const dbSession = await dbApi.loadClientSession();
+      if (dbSession && dbSession.clientSessionToken) {
+        localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(dbSession));
+      }
+    } catch (_) {}
   }
 
   function isClientSessionValid() {
@@ -2075,7 +2111,7 @@ function getUnitCardClass(unit) {
 
   async function invalidateClientSession(reason = '') {
     localStorage.setItem('FAKDU_CLIENT_APPROVED', 'false');
-    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    await persistClientSession(null);
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
     await clearClientOpQueue();
@@ -2616,7 +2652,7 @@ function getUnitCardClass(unit) {
   }
 
   async function clientLogout() {
-    localStorage.removeItem('FAKDU_CLIENT_SESSION');
+    await persistClientSession(null);
     localStorage.removeItem('FAKDU_CLIENT_APPROVED');
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem('FAKDU_PENDING_MASTER_SHOP_ID');
@@ -2717,6 +2753,7 @@ function getUnitCardClass(unit) {
         }
       }
       state.hwid = await resolveDbApi().getDeviceId();
+      await hydrateClientSessionFromDb();
       const raw = await resolveDbApi().load();
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();

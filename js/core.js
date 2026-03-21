@@ -2506,14 +2506,35 @@ function getUnitCardClass(unit) {
   }
 
   function requestNewSyncKey() {
+
     openModal('modal-sync-key-confirm');
   }
 
   function confirmNewSyncKey() {
     closeModal('modal-sync-key-confirm');
+
     const today = getLocalYYYYMMDD();
+    const sameDay = String(state.db.sync.keyResetDate || '') === String(today);
+    const usedToday = sameDay ? Number(state.db.sync.keyResetCount || 0) : 0;
+    if (usedToday >= 3) {
+      showToast('ขอ PIN ได้สูงสุด 3 ครั้ง/วัน', 'error');
+      return;
+    }
+    openModal('modal-sync-key-confirm');
+  }
+
+  function confirmNewSyncKey() {
+    const today = getLocalYYYYMMDD();
+    const sameDay = String(state.db.sync.keyResetDate || '') === String(today);
+    const usedToday = sameDay ? Number(state.db.sync.keyResetCount || 0) : 0;
+    if (usedToday >= 3) {
+      closeModal('modal-sync-key-confirm');
+      showToast('ครบ 3 ครั้งแล้ว', 'error');
+      return;
+    }
+    closeModal('modal-sync-key-confirm');
     state.db.sync.keyResetDate = today;
-    state.db.sync.keyResetCount = Number(state.db.sync.keyResetCount || 0) + 1;
+    state.db.sync.keyResetCount = usedToday + 1;
     state.db.sync.syncVersion = Number(state.db.sync.syncVersion || 1) + 1;
     state.db.sync.currentSyncPin = generateSyncPin(state.db.shopId, state.db.sync.syncVersion);
     state.db.sync.key = state.db.sync.currentSyncPin;

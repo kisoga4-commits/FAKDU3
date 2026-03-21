@@ -1,47 +1,54 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "syncPins": {
       "$pin": {
         ".read": true,
         ".write": true,
-        ".validate": "newData.hasChildren(['shopId','masterDeviceId','syncVersion','active']) && newData.child('shopId').isString() && newData.child('masterDeviceId').isString() && newData.child('syncVersion').isNumber() && newData.child('active').isBoolean()"
+        ".validate": "newData.hasChildren(['shopId','syncVersion','masterDeviceId','active','updatedAt']) && newData.child('shopId').isString() && newData.child('syncVersion').isNumber() && newData.child('masterDeviceId').isString() && newData.child('active').isBoolean() && newData.child('updatedAt').isNumber()"
       }
     },
+
     "shops": {
       "$shopId": {
         "master": {
           ".read": true,
-          ".write": true,
-          ".validate": "newData.hasChildren(['masterDeviceId','currentSyncPin','syncVersion']) && newData.child('masterDeviceId').isString() && newData.child('currentSyncPin').isString() && newData.child('syncVersion').isNumber()"
+          ".write": true
         },
+
         "joinRequests": {
           "$clientId": {
             ".read": true,
-            ".write": true,
-            ".validate": "newData.hasChildren(['clientId','profileName','pin','requestedAt','syncVersion','type']) && newData.child('clientId').val() === $clientId && newData.child('profileName').isString() && newData.child('pin').isString() && newData.child('requestedAt').isNumber() && newData.child('syncVersion').isNumber() && newData.child('type').val() === 'CLIENT_ACCESS_REQUEST'"
+            ".write": "newData.exists() && newData.child('clientId').val() === $clientId && newData.child('shopId').val() === $shopId && newData.child('status').val() === 'pending'"
           }
         },
+
         "clients": {
           "$clientId": {
             ".read": true,
-            ".write": true,
-            ".validate": "newData.hasChildren(['approved','profileName','sessionVersion']) && newData.child('approved').isBoolean() && newData.child('profileName').isString() && newData.child('sessionVersion').isNumber()"
+            ".write": true
           }
         },
+
         "snapshot": {
           ".read": true,
-          ".write": true
+          ".write": "newData.child('shopId').val() === $shopId"
         },
+
         "operations": {
           "$opId": {
             ".read": true,
-            ".write": true,
-            ".validate": "newData.hasChildren(['opId','type','timestamp']) && newData.child('opId').val() === $opId && newData.child('type').isString() && newData.child('timestamp').isNumber()"
+            ".write": "newData.child('shopId').val() === $shopId"
           }
         },
-        "alerts": {
-          ".read": true,
-          ".write": true
+
+        "events": {
+          "$eventId": {
+            ".read": true,
+            ".write": "newData.child('shopId').val() === $shopId"
+          }
         }
       }
     }

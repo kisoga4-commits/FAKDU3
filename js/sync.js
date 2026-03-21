@@ -197,6 +197,7 @@
         if (!shopId || !message?.type) return;
         await db.ref(`${shopRoot(shopId)}/events/${uid()}`).set({
           ...message,
+          shopId: message.shopId || shopId,
           id: message.id || uid(),
           createdAt: Date.now()
         });
@@ -206,6 +207,8 @@
         const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
           ...client,
+          clientId: String(client.clientId || ''),
+          shopId: client.shopId || shopId,
           type: 'CLIENT_ACCESS_REQUEST',
           status: 'pending',
           requestedAt: Number(client.requestedAt || now),
@@ -231,6 +234,7 @@
         const now = Date.now();
         await db.ref(`${shopRoot(shopId)}/operations/${opId}`).set({
           ...operation,
+          shopId: operation.shopId || shopId,
           opId,
           timestamp: Number(operation.timestamp || now),
           createdAt: now
@@ -240,6 +244,7 @@
         if (!shopId) return;
         await db.ref(`${shopRoot(shopId)}/snapshot`).set({
           ...snapshot,
+          shopId: snapshot.shopId || shopId,
           updatedAt: Date.now()
         });
       },

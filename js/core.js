@@ -2430,14 +2430,27 @@ function getUnitCardClass(unit) {
 
     clearTimeout(state.syncButtonResetTimer);
     setTimeout(() => {
+      if (!onlineClients.length) {
+        state.db.sync.lastCheck = {
+          status: 'error',
+          text: 'ยังยืนยัน Sync จริงไม่ได้',
+          hint: 'ยังไม่มีเครื่องลูกออนไลน์ ให้เชื่อมต่อเครื่องลูกก่อนแล้วค่อยเช็คอีกครั้ง',
+          at: Date.now()
+        };
+        setSyncButtonState('error');
+        updateSyncCheckStatusUi();
+        state.syncButtonResetTimer = setTimeout(() => setSyncButtonState('idle'), 10000);
+        saveDb({ render: false, sync: false });
+        return;
+      }
       const hasPendingCart = Object.values(state.db.carts).some((cart) => Array.isArray(cart) && cart.length > 0);
       const hasRed = onlineClients.some((client) => Number(client.pendingOps || 0) > 0);
-      const ok = onlineClients.length > 0 ? !hasRed : !hasPendingCart;
+      const ok = !hasRed && !hasPendingCart;
       if (ok) {
         state.db.sync.lastCheck = {
           status: 'success',
           text: 'ข้อมูลตรงกันแล้ว',
-          hint: onlineClients.length ? `ตรวจแล้ว ${onlineClients.length} เครื่อง` : 'ไม่มีเครื่องลูกออนไลน์ แต่ข้อมูลฝั่งแม่ไม่มีรายการค้าง',
+          hint: `ตรวจแล้ว ${onlineClients.length} เครื่อง`,
           at: Date.now()
         };
         setSyncButtonState('success');
@@ -2457,8 +2470,11 @@ function getUnitCardClass(unit) {
   }
 
   function requestNewSyncKey() {
-    const shouldProceed = window.confirm('ยืนยันสร้าง PIN Sync ใหม่?\nเครื่องลูกที่เชื่อมอยู่จะต้องขออนุมัติใหม่ทั้งหมด');
-    if (!shouldProceed) return;
+    openModal('modal-sync-key-confirm');
+  }
+
+  function confirmNewSyncKey() {
+    closeModal('modal-sync-key-confirm');
     const today = getLocalYYYYMMDD();
     state.db.sync.keyResetDate = today;
     state.db.sync.keyResetCount = Number(state.db.sync.keyResetCount || 0) + 1;
@@ -2834,6 +2850,7 @@ function getUnitCardClass(unit) {
     handleLockedFeatureClick,
     triggerSyncCheck,
     requestNewSyncKey,
+    confirmNewSyncKey,
     openClientScanner,
     closeClientScanner,
     submitClientAccessRequest,

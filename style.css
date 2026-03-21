@@ -229,19 +229,22 @@ hr {
 
 .trial-badge-wrap {
   position: absolute;
-  top: 10px;
-  right: 14px;
+  top: 8px;
+  right: 10px;
   z-index: 12;
 }
 
 #trial-badge {
-  min-height: 42px;
-  padding-inline: 22px !important;
+  min-height: 36px;
+  padding-inline: 14px !important;
   border-radius: 999px !important;
-  background: linear-gradient(180deg, #f5c63d 0%, #d88a15 100%) !important;
-  color: #261400 !important;
-  box-shadow: 0 12px 24px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.34);
+  background: linear-gradient(180deg, #ffe79b 0%, #f2bb3b 100%) !important;
+  color: #5a3600 !important;
+  border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.34);
   animation: none !important;
+  font-size: 12px !important;
+  letter-spacing: 0.01em;
 }
 
 #trial-badge:hover {
@@ -252,7 +255,9 @@ hr {
   width: 54px !important;
   height: 54px !important;
   border-radius: 20px !important;
-  background: rgba(255,255,255,0.98) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.1)) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255,255,255,0.24) !important;
   box-shadow: 0 12px 24px rgba(0,0,0,0.16);
 }
 
@@ -413,7 +418,7 @@ hr {
 }
 
 .unit-status-ring.status-active {
-  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.55), var(--shadow-sm);
+  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.85), 0 0 0 1px rgba(16, 185, 129, 0.18), var(--shadow-sm);
 }
 
 .unit-status-ring.status-checkout {

@@ -424,7 +424,6 @@
   function renderOnlineClientsUi() {
     const clients = state.db.sync.clients.filter((client) => client.approved);
     const onlineClients = clients.filter((client) => getClientStatus(client) === 'online');
-    const stripEmpty = qs('header-client-empty');
     const strip = qs('header-client-avatars');
     const miniBar = qs('header-online-clients-mini');
 
@@ -437,7 +436,6 @@
       }).join('');
     }
 
-    if (stripEmpty) stripEmpty.classList.toggle('hidden', onlineClients.length > 0);
     if (strip) {
       strip.classList.toggle('hidden', onlineClients.length === 0);
       strip.innerHTML = onlineClients.map((client) => {
@@ -598,8 +596,15 @@
         : unit.checkoutRequested
         ? 'รอเช็คบิล'
         : unit.orders.length > 0
-          ? 'กำลังใช้งาน'
+          ? '🟢 กำลังใช้งาน'
           : 'ว่าง';
+      const statusPillClass = cart.length > 0
+        ? 'bg-amber-100 text-amber-700'
+        : unit.checkoutRequested
+          ? 'bg-emerald-100 text-emerald-700'
+          : unit.orders.length > 0
+            ? 'bg-emerald-500 text-white shadow-sm'
+            : 'bg-gray-100 text-gray-500';
       const secondary = cart.length > 0
           ? `ตะกร้า ฿${formatMoney(cartTotal)}`
         : unit.orders.length > 0
@@ -614,7 +619,7 @@
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[11px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}" title="${statusMeta.label}">${statusText}</div>
+              <div class="text-[11px] px-2 py-1 rounded-full font-black ${statusPillClass}" title="${statusMeta.label}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>

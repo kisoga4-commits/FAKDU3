@@ -65,10 +65,10 @@
 
     <!--* nav open -->
     <div class="top-nav !grid !grid-cols-4">
-        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)">👨‍👩‍👦 ลูกค้า</div>
-        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)">🧾 เช็คบิล</div>
-        <div id="tab-manage" class="nav-tab" onclick="attemptAdmin('manage', this)">📊 หลังร้าน</div>
-        <div id="tab-system" class="nav-tab" onclick="attemptAdmin('system', this)">⚙️ ระบบ</div>
+        <div id="tab-customer" class="nav-tab active" onclick="switchTab('customer', this)"><span class="nav-icon">👨‍👩‍👦</span><span class="nav-label">TAP ลูกค้า</span></div>
+        <div id="tab-shop" class="nav-tab" onclick="switchTab('shop', this)"><span class="nav-icon">🧾</span><span class="nav-label">TAP เช็คบิล</span></div>
+        <div id="tab-manage" class="nav-tab" onclick="attemptAdmin('manage', this)"><span class="nav-icon">📊</span><span class="nav-label">TAP หลังร้าน</span></div>
+        <div id="tab-system" class="nav-tab" onclick="attemptAdmin('system', this)"><span class="nav-icon">⚙️</span><span class="nav-label">TAP ระบบ</span></div>
     </div>
     <!--** nav close -->
 
@@ -80,9 +80,9 @@
                 <div class="text-[10px] text-gray-400 font-bold mt-1 sr-only">กดโต๊ะเพื่อรับออร์เดอร์หรือดูรายการค้าง</div>
             </div>
             <div class="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
-                <button onclick="changeGridZoom(1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">-</button>
+                <button onclick="changeGridZoom(-1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">-</button>
                 <div class="w-8 h-8 flex items-center justify-center font-bold text-xs text-gray-400" id="zoom-level-text">M</div>
-                <button onclick="changeGridZoom(-1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">+</button>
+                <button onclick="changeGridZoom(1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">+</button>
             </div>
         </div>
         <div id="grid-units" class="grid grid-cols-2 gap-4"></div>
@@ -198,7 +198,7 @@
                         <h3 class="font-black text-sm">รายการเมนู (<span id="menu-count">0</span>)</h3>
                         <p class="text-[10px] text-gray-400 font-bold mt-1">เพิ่ม แก้ไข ลบรูป ชื่อ ราคา และ add-on ได้</p>
                     </div>
-                    <button onclick="openMenuModal()" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-black text-xs shadow-md">+ เพิ่ม</button>
+                    <button id="btn-add-menu-item" onclick="openMenuModal()" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-black text-xs shadow-md">+ เพิ่ม</button>
                 </div>
                 <div id="admin-menu-list" class="space-y-4"></div>
             </div>
@@ -243,7 +243,7 @@
                         </div>
                         <span>เช็ค Sync</span>
                     </button>
-                    <button onclick="requestNewSyncKey()" class="bg-slate-900 text-white py-3.5 rounded-2xl font-black text-xs active:scale-95">🔄 ขอรหัสใหม่</button>
+                    <button id="btn-sync-new-key" onclick="requestNewSyncKey()" class="bg-slate-900 text-white py-3.5 rounded-2xl font-black text-xs active:scale-95">🔄 ขอรหัสใหม่</button>
                 </div>
             </div>
 
@@ -329,7 +329,7 @@
                     <h3 class="font-black text-sm text-slate-800">ลืมรหัส Admin</h3>
                     <p class="text-[10px] text-slate-500 font-bold">ตั้งค่าสีที่ชอบ + สัตว์ที่ชอบ เพื่อยืนยันสิทธิ์ก่อนรีเซ็ต PIN</p>
                 </div>
-                <button onclick="openModal('modal-recovery-setup')" class="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-[11px] font-black active:scale-95">ตั้งค่า</button>
+                <button id="btn-recovery-setup-secondary" onclick="openModal('modal-recovery-setup')" class="px-4 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 text-[11px] font-black active:scale-95">ตั้งค่า</button>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] font-bold text-gray-600">
                 <div class="bg-gray-50 rounded-xl p-3 border">เบอร์ช่วยจำ<br><span id="recovery-phone-state-2" class="text-indigo-700 font-black">ยังไม่ตั้งค่า</span></div>
@@ -339,10 +339,10 @@
         </div>
 
         <div class="grid grid-cols-2 gap-3 mb-8">
-            <button onclick="exportBackup()" class="bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-sm text-xs active:scale-95">📥 Backup DB</button>
-            <div class="relative bg-gray-200 text-gray-700 py-4 rounded-2xl font-black shadow-sm text-xs text-center flex items-center justify-center cursor-pointer active:scale-95">
+            <button id="btn-export-backup" onclick="exportBackup()" class="bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-sm text-xs active:scale-95">📥 Backup DB</button>
+            <div id="btn-import-backup-wrap" class="relative bg-gray-200 text-gray-700 py-4 rounded-2xl font-black shadow-sm text-xs text-center flex items-center justify-center cursor-pointer active:scale-95">
                 📤 Restore DB
-                <input type="file" accept=".json" class="absolute inset-0 opacity-0 cursor-pointer" onchange="importBackup(event)">
+                <input id="input-import-backup" type="file" accept=".json" class="absolute inset-0 opacity-0 cursor-pointer" onchange="importBackup(event)">
             </div>
         </div>
     </section>
@@ -358,7 +358,7 @@
                 <button onclick="closeModal('modal-admin-pin')" class="flex-1 bg-gray-100 py-4 rounded-[20px] font-black text-gray-500 text-lg">ยกเลิก</button>
                 <button onclick="verifyAdminPin()" class="flex-[2] theme-bg py-4 rounded-[20px] font-black shadow-lg text-lg">ยืนยัน</button>
             </div>
-            <button onclick="openRecoveryModal()" class="text-red-500 text-[12px] font-bold underline p-2 active:scale-95">ลืมรหัสผ่าน?</button>
+            <button id="btn-open-recovery" onclick="openRecoveryModal()" class="text-red-500 text-[12px] font-bold underline p-2 active:scale-95">ลืมรหัสผ่าน?</button>
         </div>
     </div>
     <!--** modal-admin-pin close -->
@@ -486,9 +486,9 @@
             <p class="text-[11px] text-gray-500 mb-6 font-bold uppercase tracking-widest">ปลดล็อคฟีเจอร์สำคัญและจัดการร้านแบบเต็มระบบ</p>
             <div class="bg-yellow-50 p-5 rounded-2xl border border-yellow-100 text-left mb-6 shadow-sm">
                 <ul class="space-y-3 text-[12px] font-bold text-yellow-900 leading-tight">
-                    <li class="flex items-start gap-2"><span>✅</span><span>ไม่จำกัดโต๊ะ/คิว และเมนู</span></li>
-                    <li class="flex items-start gap-2"><span>✅</span><span>ดูยอดขายวัน/สัปดาห์/เดือน และค้นหาย้อนหลัง</span></li>
-                    <li class="flex items-start gap-2"><span>✅</span><span>ตั้งค่าข้อมูลช่วยจำกู้รหัสและระบบป้องกันเพิ่มเติม</span></li>
+                    <li class="flex items-start gap-2"><span>✅</span><span>ปลดล็อค โต๊ะ/คิว และเมนู มากกว่า 4 รายการ</span></li>
+                    <li class="flex items-start gap-2"><span>✅</span><span>ดูรายได้/ประวัติย้อนหลัง และยอดฮิตแบบละเอียด</span></li>
+                    <li class="flex items-start gap-2"><span>✅</span><span>ใช้งานลืมรหัส Admin, Backup/Restore, และ Sync ขั้นสูง</span></li>
                 </ul>
             </div>
             <div class="text-center p-4 bg-gray-50 rounded-2xl mb-6 border">

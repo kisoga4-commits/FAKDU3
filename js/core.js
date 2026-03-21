@@ -2506,6 +2506,13 @@ function getUnitCardClass(unit) {
   }
 
   function requestNewSyncKey() {
+
+    openModal('modal-sync-key-confirm');
+  }
+
+  function confirmNewSyncKey() {
+    closeModal('modal-sync-key-confirm');
+
     const today = getLocalYYYYMMDD();
     const sameDay = String(state.db.sync.keyResetDate || '') === String(today);
     const usedToday = sameDay ? Number(state.db.sync.keyResetCount || 0) : 0;

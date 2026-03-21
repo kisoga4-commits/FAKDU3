@@ -2361,6 +2361,8 @@
   }
 
   function requestNewSyncKey() {
+    const shouldProceed = window.confirm('ยืนยันสร้าง PIN Sync ใหม่?\nเครื่องลูกที่เชื่อมอยู่จะต้องขออนุมัติใหม่ทั้งหมด');
+    if (!shouldProceed) return;
     const today = getLocalYYYYMMDD();
     state.db.sync.keyResetDate = today;
     state.db.sync.keyResetCount = Number(state.db.sync.keyResetCount || 0) + 1;

@@ -618,12 +618,12 @@
     grid.classList.add(state.gridZoom === 1 ? 'grid-cols-3' : state.gridZoom === 2 ? 'grid-cols-2' : 'grid-cols-1');
   }
 
-  function getUnitCardClass(unit) {
-    const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return 'unit-card--draft';
-    if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
-    return 'unit-card--idle';
-  }
+function getUnitCardClass(unit) {
+  const cart = state.db.carts[unit.id] || [];
+  if (cart.length > 0) return 'unit-card--draft';
+  if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
+  return 'unit-card--idle';
+}
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
@@ -1813,11 +1813,14 @@
   function applyMasterSnapshot(payload) {
     if (!payload || !IS_CLIENT_NODE) return;
     if (!isClientSessionValid()) return;
+ codex/remove-notifications-and-fix-pin-access-jdab4j
     const session = getStoredClientSession();
     if (session && Number(payload.syncVersion || 0) > Number(session.syncVersion || 0)) {
       invalidateClientSession('เครื่องแม่เปลี่ยน PIN แล้ว กรุณาขออนุมัติใหม่');
       return;
     }
+
+ main
     if (payload.shopId && state.db.shopId && payload.shopId !== state.db.shopId) return;
     if (payload.shopId) state.db.shopId = payload.shopId;
     state.db.shopName = payload.shopName || state.db.shopName;
@@ -2597,6 +2600,7 @@
         if (qs('sys-client-name')) qs('sys-client-name').value = profile.profileName;
         if (qs('client-device-name')) qs('client-device-name').textContent = profile.profileName;
         if (qs('client-avatar') && profile.avatar) qs('client-avatar').src = profile.avatar;
+ codex/remove-notifications-and-fix-pin-access-jdab4j
         const session = getStoredClientSession();
         state.db.sync.clientSession = session ? {
           shopId: session.shopId || '',
@@ -2604,6 +2608,8 @@
           clientSessionToken: session.clientSessionToken || '',
           syncVersion: Number(session.syncVersion || state.db.sync.syncVersion || 1)
         } : null;
+
+ main
         if (!isClientSessionValid()) {
           state.db.items = [];
           state.db.units = [];

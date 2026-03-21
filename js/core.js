@@ -77,6 +77,8 @@
     activeDashSub: 'history',
     activeUnitId: null,
     gridZoom: 2,
+    customerGridCollapsed: true,
+    shopQueueCollapsed: true,
     pendingAdminAction: null,
     tempAddons: [],
     tempImg: '',
@@ -552,14 +554,41 @@
     return 'bg-white border-gray-200';
   }
 
+  function getUnitStatusMeta(unit) {
+    const cart = state.db.carts[unit.id] || [];
+    if (cart.length > 0) return { cls: 'status-draft', label: 'มีค้างส่ง' };
+    if (unit.checkoutRequested) return { cls: 'status-checkout', label: 'รอเช็คบิล' };
+    if (unit.orders.length > 0) return { cls: 'status-active', label: 'กำลังใช้งาน' };
+    return { cls: 'status-idle', label: 'ว่าง' };
+  }
+
+  function toggleCustomerGridCollapse() {
+    state.customerGridCollapsed = !state.customerGridCollapsed;
+    renderCustomerGrid();
+  }
+
+  function toggleShopQueueCollapse() {
+    state.shopQueueCollapsed = !state.shopQueueCollapsed;
+    renderShopQueue();
+  }
+
   function renderCustomerGrid() {
     const grid = qs('grid-units');
     if (!grid) return;
     updateGridZoomUi();
-    grid.innerHTML = state.db.units.map((unit) => {
+    const toolbar = qs('customer-grid-toolbar');
+    const toggleBtn = qs('btn-toggle-grid-collapse');
+    const shouldCollapse = state.db.units.length > 12;
+    if (toolbar && toggleBtn) {
+      toolbar.classList.toggle('hidden', !shouldCollapse);
+      toggleBtn.textContent = state.customerGridCollapsed ? `ดูทั้งหมด (${state.db.units.length})` : 'ย่อรายการ';
+    }
+    const unitsToRender = shouldCollapse && state.customerGridCollapsed ? state.db.units.slice(0, 12) : state.db.units;
+    grid.innerHTML = unitsToRender.map((unit) => {
       const cart = state.db.carts[unit.id] || [];
       const total = unit.orders.reduce((sum, order) => sum + order.total, 0);
       const cartTotal = cart.reduce((sum, item) => sum + item.total, 0);
+      const statusMeta = getUnitStatusMeta(unit);
       const statusText = cart.length > 0
         ? '🟠'
         : unit.checkoutRequested
@@ -574,14 +603,14 @@
           : '-';
       const timeText = unit.startTime ? formatDurationFrom(unit.startTime) : '-';
       return `
-        <button onclick="openTable(${unit.id})" class="text-left p-4 rounded-[26px] border-2 shadow-sm transition active:scale-[0.98] ${getUnitCardClass(unit)}">
+        <button onclick="openTable(${unit.id})" class="unit-status-ring ${statusMeta.cls} text-left p-4 rounded-[26px] border-2 shadow-sm transition active:scale-[0.98] ${getUnitCardClass(unit)}">
           <div class="flex items-start justify-between gap-2 mb-3">
             <div>
               <div class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">${escapeHtml(state.db.unitType)}</div>
               <div class="font-black text-3xl text-gray-800 leading-none">${unit.id}</div>
             </div>
             <div class="text-right">
-              <div class="text-[12px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}">${statusText}</div>
+              <div class="text-[12px] px-2 py-1 rounded-full font-black ${cart.length > 0 ? 'bg-amber-100 text-amber-700' : unit.checkoutRequested ? 'bg-emerald-100 text-emerald-700' : unit.orders.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}" title="${statusMeta.label}">${statusText}</div>
               ${unit.newItemsQty > 0 ? `<div class="text-[10px] mt-2 font-black text-red-500">+${unit.newItemsQty} ใหม่</div>` : ''}
             </div>
           </div>
@@ -846,18 +875,27 @@
   function renderShopQueue() {
     const queue = qs('shop-queue');
     const count = qs('shop-request-count');
-    if (!queue || !count) return;
+    if (!queue) return;
     const activeUnits = state.db.units
       .filter((unit) => unit.orders.length > 0 || (state.db.carts[unit.id] || []).length > 0)
       .sort((a, b) => Number(b.checkoutRequested) - Number(a.checkoutRequested) || (a.startTime || 0) - (b.startTime || 0));
-    count.textContent = `${activeUnits.length} รายการ`;
+    if (count) count.textContent = `${activeUnits.length} รายการ`;
+    const queueToolbar = qs('shop-queue-toolbar');
+    const queueToggle = qs('btn-toggle-queue-collapse');
+    const shouldCollapse = activeUnits.length > 10;
+    if (queueToolbar && queueToggle) {
+      queueToolbar.classList.toggle('hidden', !shouldCollapse);
+      queueToggle.textContent = state.shopQueueCollapsed ? `ดูทั้งหมด (${activeUnits.length})` : 'ย่อรายการ';
+    }
+    const queueRows = shouldCollapse && state.shopQueueCollapsed ? activeUnits.slice(0, 10) : activeUnits;
     if (!activeUnits.length) {
       queue.innerHTML = '<div class="bg-white p-6 rounded-[24px] border text-center text-gray-400 font-bold">ยังไม่มีโต๊ะที่รอเช็คบิล</div>';
       return;
     }
-    queue.innerHTML = activeUnits.map((unit) => {
+    queue.innerHTML = queueRows.map((unit) => {
       const cart = state.db.carts[unit.id] || [];
       const hasDraft = cart.length > 0;
+      const statusMeta = getUnitStatusMeta(unit);
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
       const draftTotal = cart.reduce((sum, row) => sum + row.total, 0);
       const checkoutActionLabel = hasDraft
@@ -872,7 +910,7 @@
           ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
           : '';
       return `
-        <div class="bg-white p-4 rounded-[24px] border shadow-sm relative ${hasDraft ? 'draft-warning-card border-amber-300' : unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
+        <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border shadow-sm relative ${hasDraft ? 'draft-warning-card border-amber-300' : unit.checkoutRequested ? 'border-amber-300' : 'border-gray-100'}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
           <div class="flex items-start justify-between gap-3 mb-3">
             <div>
@@ -1045,7 +1083,8 @@
     closeModal('modal-checkout');
     saveDb({ render: true, sync: true });
     showToast(method === 'transfer' ? 'ปิดบิล (โอน/QR) แล้ว' : 'ปิดบิล (เงินสด) แล้ว', 'success');
-    switchTab('customer', qs('tab-customer'));
+    if (state.activeTab === 'shop') renderShopQueue();
+    if (state.activeTab === 'manage') renderAnalytics();
   }
   //* queue and checkout close
 
@@ -1105,6 +1144,10 @@
     if (qs('stat-today')) qs('stat-today').textContent = formatMoney(today);
     if (qs('stat-week')) qs('stat-week').textContent = formatMoney(week);
     if (qs('stat-month')) qs('stat-month').textContent = formatMoney(month);
+    const cashTotal = state.db.sales.reduce((sum, sale) => sale.method === 'cash' ? sum + Number(sale.total || 0) : sum, 0);
+    const transferTotal = state.db.sales.reduce((sum, sale) => sale.method === 'transfer' ? sum + Number(sale.total || 0) : sum, 0);
+    if (qs('stat-cash-total')) qs('stat-cash-total').textContent = formatMoney(cashTotal);
+    if (qs('stat-transfer-total')) qs('stat-transfer-total').textContent = formatMoney(transferTotal);
 
     const history = qs('sales-history');
     if (history) {
@@ -1119,7 +1162,7 @@
             </div>
             <div class="text-right shrink-0">
               <div class="font-black theme-text text-lg">฿${formatMoney(sale.total)}</div>
-              <div class="text-[10px] text-gray-400 font-bold">${sale.method === 'transfer' ? 'โอน/QR' : 'เงินสด'}</div>
+              <div class="text-[10px] text-gray-500 font-black">${sale.method === 'transfer' ? '📱 โอน/QR' : '💵 เงินสด'}</div>
             </div>
           </div>
         `).join('');
@@ -2090,6 +2133,8 @@
     verifyAdminPin,
     adminLogout,
     changeGridZoom,
+    toggleCustomerGridCollapse,
+    toggleShopQueueCollapse,
     openTable,
     handleItemClickByIndex,
     reviewCart,

@@ -85,6 +85,9 @@
                 <button onclick="changeGridZoom(1)" class="w-8 h-8 flex items-center justify-center bg-gray-50 text-gray-600 rounded-lg font-black text-lg active:scale-95">+</button>
             </div>
         </div>
+        <div id="customer-grid-toolbar" class="hidden mb-3 flex justify-end">
+            <button id="btn-toggle-grid-collapse" onclick="toggleCustomerGridCollapse()" class="text-[11px] font-black px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 active:scale-95"></button>
+        </div>
         <div id="grid-units" class="grid grid-cols-2 gap-4"></div>
     </section>
     <!--** screen-customer close -->
@@ -127,6 +130,9 @@
             </div>
             <div id="shop-request-count" class="bg-gray-100 text-gray-600 px-3 py-2 rounded-xl text-xs font-black">0 รายการ</div>
         </div>
+        <div id="shop-queue-toolbar" class="hidden mb-3 flex justify-end">
+            <button id="btn-toggle-queue-collapse" onclick="toggleShopQueueCollapse()" class="text-[11px] font-black px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 active:scale-95"></button>
+        </div>
         <div id="shop-queue" class="space-y-4"></div>
     </section>
     <!--** screen-shop close -->
@@ -153,6 +159,16 @@
                     <div class="text-xl font-black">฿<span id="stat-month">0</span></div>
                 </div>
             </div>
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100 text-center">
+                    <div class="text-[10px] font-bold uppercase text-emerald-700">เงินสดสะสม</div>
+                    <div class="text-lg font-black text-emerald-700">💵 ฿<span id="stat-cash-total">0</span></div>
+                </div>
+                <div class="bg-blue-50 p-3 rounded-2xl border border-blue-100 text-center">
+                    <div class="text-[10px] font-bold uppercase text-blue-700">โอน/QR สะสม</div>
+                    <div class="text-lg font-black text-blue-700">📱 ฿<span id="stat-transfer-total">0</span></div>
+                </div>
+            </div>
 
             <div class="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm mb-6">
                 <div class="flex bg-gray-50 p-1 rounded-xl mb-4 border">
@@ -174,6 +190,7 @@
                 </div>
 
                 <div id="dash-top" class="hidden">
+                    <div class="text-[11px] font-bold text-gray-500 mb-3">เมนูขายดีที่สุด จัดอันดับอัตโนมัติจากประวัติยอดขาย</div>
                     <div id="top-items-list" class="space-y-2 mt-2"></div>
                 </div>
             </div>

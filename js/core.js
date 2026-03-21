@@ -6,6 +6,9 @@
   const LS_ADMIN = 'FAKDU_ADMIN_LOGGED_IN';
   const LS_DEFERRED_INSTALL = 'FAKDU_DEFERRED_INSTALL';
   const LS_SNAPSHOT_PREFIX = 'FAKDU_SYNC_SNAPSHOT_';
+  const LS_PENDING_SYNC_VERSION = 'FAKDU_PENDING_SYNC_VERSION';
+  const HEARTBEAT_INTERVAL_MS = 5000;
+  const CLIENT_AVATAR_MAX_BYTES = 1.5 * 1024 * 1024;
   const COLOR_MAP = {
     red: 'สีแดง',
     white: 'สีขาว',
@@ -98,7 +101,8 @@
     autoSaveTimer: null,
     audioCtx: null,
     hwid: '',
-    isPro: false
+    isPro: false,
+    lastClientHeartbeatAt: 0
   };
   const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '');
   //* constants close
@@ -234,6 +238,13 @@
       profileName: localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'เครื่องลูก',
       avatar: localStorage.getItem('FAKDU_CLIENT_AVATAR') || ''
     };
+  }
+  function getPendingSyncVersion() {
+    const raw = Number(localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
+    return raw > 0 ? raw : Number(state.db.sync.syncVersion || 1);
+  }
+  function getPendingMasterShopId() {
+    return localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || state.db.shopId || '';
   }
   function issueClientSessionToken({ shopId, clientId, syncVersion }) {
     const payload = `${shopId}|${clientId}|${syncVersion}|${Date.now()}|${Math.random().toString(36).slice(2, 10)}`;
@@ -1832,6 +1843,7 @@
         clientSessionToken: payload.clientSessionToken || '',
         syncVersion: Number(payload.syncVersion || 1)
       }));
+      localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       showToast('เครื่องแม่อนุมัติแล้ว', 'success');
       return;
     }
@@ -1884,7 +1896,7 @@
           avatar: profile.avatar,
           pin: pendingPin,
           shopId: pendingShopId,
-          syncVersion: Number(state.db.sync.syncVersion || 1)
+          syncVersion: getPendingSyncVersion()
         }
       });
     } catch (_) {}
@@ -2235,7 +2247,11 @@
           try {
             const data = JSON.parse(decodedText);
             const pin = data.pin || '';
+            const shopId = data.shopId || '';
+            const syncVersion = Number(data.syncVersion || 1);
             if (pin && qs('manual-pin')) qs('manual-pin').value = pin;
+            if (shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', shopId);
+            if (syncVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(syncVersion));
           } catch (_) {
             if (qs('manual-pin')) qs('manual-pin').value = decodedText;
           }
@@ -2264,8 +2280,12 @@
   function submitClientAccessRequest() {
     const pin = qs('manual-pin')?.value?.trim() || '';
     if (!pin) return showToast('กรุณากรอก PIN', 'error');
+    const pendingShopId = getPendingMasterShopId();
+    if (!pendingShopId) {
+      return showToast('กรุณาสแกน QR จากเครื่องแม่ก่อน (ต้องมีรหัสร้าน)', 'error');
+    }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
-    localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', state.db.shopId || '');
+    localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', pendingShopId);
     window.location.href = 'client.html';
   }
   //* scanner close
@@ -2274,11 +2294,17 @@
   function handleClientImage(event) {
     const file = event?.target?.files?.[0];
     if (!file) return;
+    if (file.size > CLIENT_AVATAR_MAX_BYTES) {
+      showToast('รูปใหญ่เกินไป (ไม่เกิน 1.5MB)', 'error');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const data = String(reader.result || '');
       localStorage.setItem('FAKDU_CLIENT_AVATAR', data);
       if (qs('client-avatar')) qs('client-avatar').src = data;
+      if (isClientSessionValid()) broadcastClientHeartbeat();
+      else broadcastClientAccessRequest();
       showToast('อัปเดตรูปเครื่องลูกแล้ว', 'success');
     };
     reader.readAsDataURL(file);
@@ -2289,14 +2315,29 @@
     if (!name) return showToast('กรอกชื่อโปรไฟล์ก่อน', 'error');
     localStorage.setItem('FAKDU_CLIENT_PROFILE_NAME', name);
     if (qs('client-device-name')) qs('client-device-name').textContent = name;
+    if (isClientSessionValid()) broadcastClientHeartbeat();
+    else broadcastClientAccessRequest();
     showToast('บันทึกโปรไฟล์แล้ว', 'success');
   }
 
-  function clientLogout() {
+  async function clientLogout() {
     localStorage.removeItem('FAKDU_CLIENT_SESSION');
     localStorage.removeItem('FAKDU_CLIENT_APPROVED');
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem('FAKDU_PENDING_MASTER_SHOP_ID');
+    localStorage.removeItem(LS_PENDING_SYNC_VERSION);
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((key) => key.startsWith('fakdu-')).map((key) => caches.delete(key)));
+      }
+    } catch (_) {}
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
+      }
+    } catch (_) {}
     window.location.href = 'index.html';
   }
   //* client profile close
@@ -2338,8 +2379,12 @@
       }
       renderOnlineClientsUi();
       if (IS_CLIENT_NODE) {
-        if (isClientSessionValid()) broadcastClientHeartbeat();
-        else broadcastClientAccessRequest();
+        const tick = Date.now();
+        if ((tick - state.lastClientHeartbeatAt) >= HEARTBEAT_INTERVAL_MS) {
+          if (isClientSessionValid()) broadcastClientHeartbeat();
+          else broadcastClientAccessRequest();
+          state.lastClientHeartbeatAt = tick;
+        }
       }
     }, 1000);
   }

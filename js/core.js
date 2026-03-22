@@ -3724,6 +3724,28 @@
   }
   //* init close
 
+  //* shield open
+  const _0x2f9a = {
+    b7(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    },
+    c3(event) {
+      const key = String(event.key || '').toLowerCase();
+      const blockedCombo = event.ctrlKey && event.shiftKey && (key === 'i' || key === 'j' || key === 'c');
+      const blockedDevKey = key === 'f12';
+      if (blockedCombo || blockedDevKey) return _0x2f9a.b7(event);
+      return true;
+    }
+  };
+
+  function _0x7d11() {
+    document.addEventListener('contextmenu', _0x2f9a.b7, { capture: true });
+    document.addEventListener('keydown', _0x2f9a.c3, { capture: true });
+  }
+  //* shield close
+
   //* events open
   window.addEventListener('online', () => {
     updateMasterConnectionUi();
@@ -3737,7 +3759,10 @@
       applyMasterSnapshot(JSON.parse(event.newValue));
     } catch (_) {}
   });
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => {
+    _0x7d11();
+    init();
+  });
   document.addEventListener('keydown', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;

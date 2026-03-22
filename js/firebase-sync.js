@@ -24,6 +24,8 @@
     function shopRoot(shopId = '') {
       return `shops/${shopId}`;
     }
+    const eventsPath = (shopId = '') => `${shopRoot(shopId)}/events`;
+    const joinRequestsPath = (shopId = '') => `${shopRoot(shopId)}/joinRequests`;
     return {
       async readSyncMeta(shopId = '') {
         if (!shopId) return null;
@@ -58,7 +60,7 @@
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};
-        const ref = db.ref(`${shopRoot(shopId)}/events`).limitToLast(100);
+        const ref = db.ref(eventsPath(shopId)).limitToLast(100);
         const handler = (snap) => {
           const payload = snap.val();
           if (!payload) return;
@@ -71,7 +73,7 @@
       },
       async send(shopId = '', message = {}) {
         if (!shopId || !message?.type) return;
-        await db.ref(`${shopRoot(shopId)}/events/${uid()}`).set({
+        await db.ref(`${eventsPath(shopId)}/${uid()}`).set({
           ...message,
           shopId: message.shopId || shopId,
           id: message.id || uid(),
@@ -81,7 +83,7 @@
       async writeJoinRequest(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
         const now = Date.now();
-        await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
+        await db.ref(`${joinRequestsPath(shopId)}/${client.clientId}`).set({
           ...client,
           clientId: String(client.clientId || ''),
           shopId: client.shopId || shopId,
@@ -93,7 +95,7 @@
       },
       listenJoinRequests(shopId = '', onRequest = () => {}) {
         if (!shopId) return () => {};
-        const ref = db.ref(`${shopRoot(shopId)}/joinRequests`);
+        const ref = db.ref(joinRequestsPath(shopId));
         const handler = (snap) => {
           const payload = snap.val();
           if (!payload || !payload.clientId) return;

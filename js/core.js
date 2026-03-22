@@ -2223,8 +2223,8 @@ function getUnitCardClass(unit) {
   }
 
   function redirectToClientPage(reason = '') {
-    if (!IS_CLIENT_NODE) return;
     if (/client\.html$/i.test(window.location.pathname || '')) return;
+    console.log('[FAKDU][SYNC] redirect to client page', { reason, path: window.location.pathname });
     if (reason) showToast(reason, 'success');
     window.location.replace('client.html');
   }

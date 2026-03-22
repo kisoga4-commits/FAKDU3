@@ -2528,6 +2528,7 @@ function getUnitCardClass(unit) {
       return;
     }
     const exists = state.db.sync.approvals.find((row) => row.clientId === client.clientId);
+    const isNewRequest = !exists;
     if (exists) {
       exists.requestedAt = Date.now();
       exists.profileName = client.profileName || exists.profileName || exists.name;
@@ -2559,6 +2560,12 @@ function getUnitCardClass(unit) {
     }
     renderClientApprovalList();
     updateApprovalInboxUi();
+
+    if (!IS_CLIENT_NODE && isNewRequest) {
+      try { openModal('modal-client-approvals'); } catch (_) {}
+    }
+
+
     showToast('มีคำขอเครื่องลูกใหม่', 'click');
   }
 
@@ -2832,6 +2839,10 @@ function getUnitCardClass(unit) {
     } catch (_) {}
     renderClientApprovalList();
     updateApprovalInboxUi();
+
+    if (!state.db.sync.approvals.length) closeModal('modal-client-approvals');
+
+ 
     renderOnlineClientsUi();
     saveDb({ render: false, sync: true });
     showToast('อนุมัติเครื่องลูกแล้ว', 'success');
@@ -2855,6 +2866,10 @@ function getUnitCardClass(unit) {
     } catch (_) {}
     renderClientApprovalList();
     updateApprovalInboxUi();
+
+    if (!state.db.sync.approvals.length) closeModal('modal-client-approvals');
+
+
     saveDb({ render: false, sync: false });
     syncMasterMetaToFirebase();
     showToast('ปฏิเสธคำขอแล้ว', 'click');

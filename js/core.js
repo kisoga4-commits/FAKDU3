@@ -2,7 +2,7 @@
   'use strict';
 
   //* constants open
-  const APP_VERSION = '9.46';
+  const APP_VERSION = '10.20';
   const LS_ADMIN = 'FAKDU_ADMIN_LOGGED_IN';
   const LS_DEFERRED_INSTALL = 'FAKDU_DEFERRED_INSTALL';
   const LS_SNAPSHOT_PREFIX = 'FAKDU_SYNC_SNAPSHOT_';
@@ -1820,7 +1820,9 @@
   }
 
   function updateUnits() {
-    const rawCount = Math.max(1, Number(qs('config-unit-count')?.value || state.db.unitCount || 4));
+    const parsed = Number(qs('config-unit-count')?.value || state.db.unitCount || 4);
+    const safeParsed = Number.isFinite(parsed) ? parsed : Number(state.db.unitCount || 4);
+    const rawCount = Math.min(200, Math.max(1, Math.floor(safeParsed)));
     const count = state.isPro ? rawCount : Math.min(TRIAL_LIMITS.unitMax, rawCount);
     const type = qs('config-unit-type')?.value || 'โต๊ะ';
     if (!state.isPro && rawCount > TRIAL_LIMITS.unitMax) {
@@ -1843,6 +1845,13 @@
     state.db.unitCount = count;
     state.db.units = nextUnits;
     state.db.carts = nextCarts;
+    const activeId = Number(state.activeUnitId || 0);
+    if (!activeId || activeId > count) {
+      state.activeUnitId = count > 0 ? 1 : null;
+      if (state.activeTab === 'order') {
+        switchTab('customer', qs('tab-customer'));
+      }
+    }
     logOperation('REBUILD_UNITS', { count, type });
   }
   //* menu close

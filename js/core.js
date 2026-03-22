@@ -1108,7 +1108,7 @@
     }
     const queueRows = shouldCollapse && state.shopQueueCollapsed ? activeUnits.slice(0, 10) : activeUnits;
     if (!activeUnits.length) {
-      queue.innerHTML = '<div class="bg-white p-6 rounded-[24px] border text-center text-gray-400 font-bold">ยังไม่มีคิวรอเช็คบิล</div>';
+      queue.innerHTML = '<div class="bg-white p-6 rounded-[24px] border text-center text-gray-400 font-bold">ยังไม่มีคิวเช็คบิล</div>';
       return;
     }
     queue.innerHTML = queueRows.map((unit) => {
@@ -1118,7 +1118,7 @@
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
       const waitStart = unit.lastActivityAt || unit.checkoutRequestedAt || unit.startTime;
       const waitText = unit.checkoutRequested
-        ? `รอเช็คบิล ${formatDurationFrom(unit.checkoutRequestedAt || waitStart)}`
+        ? `รอ ${formatDurationFrom(unit.checkoutRequestedAt || waitStart)}`
         : `กำลังใช้งาน ${formatDurationFrom(waitStart)}`;
       const checkoutActionLabel = hasDraft
         ? 'ไปส่งออร์เดอร์'
@@ -1137,10 +1137,10 @@
       return `
         <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border-2 shadow-sm relative ${getUnitCardClass(unit)}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
-          <div class="flex items-start justify-between gap-3 mb-3">
+          <div class="flex items-start justify-between gap-3 mb-2">
             <div>
               <div class="font-black text-2xl text-gray-800">${getUnitLabel(unit.id)}</div>
-              <div class="text-[11px] font-bold text-amber-600">${waitText}</div>
+              <div class="text-[11px] font-bold text-amber-600 leading-tight">${waitText}</div>
             </div>
             <div class="text-right">
               <div class="font-black text-xl text-gray-800">฿${formatMoney(total)}</div>
@@ -1148,7 +1148,7 @@
             </div>
           </div>
 
-          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${orderSummary}</div>
+          <div class="text-[11px] text-gray-500 font-bold mb-2 truncate">${orderSummary}</div>
 
           ${renderUnitItemThumbnails(thumbRows)}
           <div class="flex gap-2">

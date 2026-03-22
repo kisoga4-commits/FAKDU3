@@ -3595,10 +3595,18 @@
     return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   }
 
+  function isInstallBannerSuppressed() {
+    return localStorage.getItem(LS_DEFERRED_INSTALL) === 'installed';
+  }
+
+  function markInstallBannerSuppressed() {
+    localStorage.setItem(LS_DEFERRED_INSTALL, 'installed');
+  }
+
   function syncInstallBannerVisibility() {
     const banner = qs('pwa-install-banner');
     if (!banner) return;
-    if (isPwaInstalled() || !state.deferredInstallPrompt) {
+    if (isPwaInstalled() || isInstallBannerSuppressed() || !state.deferredInstallPrompt) {
       banner.classList.add('hidden');
       return;
     }
@@ -3611,7 +3619,9 @@
       return;
     }
     state.deferredInstallPrompt.prompt();
-    state.deferredInstallPrompt.userChoice.finally(() => {
+    state.deferredInstallPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult?.outcome === 'accepted') markInstallBannerSuppressed();
+    }).finally(() => {
       state.deferredInstallPrompt = null;
       syncInstallBannerVisibility();
     });
@@ -3619,12 +3629,13 @@
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
-    if (isPwaInstalled()) return;
+    if (isPwaInstalled() || isInstallBannerSuppressed()) return;
     state.deferredInstallPrompt = event;
     syncInstallBannerVisibility();
   });
 
   window.addEventListener('appinstalled', () => {
+    markInstallBannerSuppressed();
     state.deferredInstallPrompt = null;
     syncInstallBannerVisibility();
   });

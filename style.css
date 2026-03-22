@@ -120,6 +120,48 @@ hr {
   padding: 12px 14px 28px;
 }
 
+@media (max-width: 420px) {
+  .app-container {
+    padding: 10px 10px 22px;
+  }
+
+  .glass-header {
+    padding: 14px 12px;
+    border-radius: 26px;
+    gap: 8px;
+  }
+
+  #shop-logo {
+    width: 60px;
+    height: 60px;
+    border-radius: 16px !important;
+  }
+
+  #display-shop-name {
+    font-size: 1.55rem !important;
+  }
+
+  #trial-badge {
+    min-height: 34px;
+    font-size: 11px !important;
+    padding-inline: 12px !important;
+  }
+
+  .top-nav {
+    gap: 6px;
+  }
+
+  .nav-tab {
+    min-height: 58px;
+    padding: 8px 4px;
+  }
+
+  .nav-label {
+    font-size: 10px;
+    line-height: 1.1;
+  }
+}
+
 #pwa-install-banner {
   border-radius: 22px;
   box-shadow: var(--shadow-md);

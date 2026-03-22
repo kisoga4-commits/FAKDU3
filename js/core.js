@@ -577,8 +577,9 @@
     const systemChip = qs('master-online-chip');
     if (dot) {
       dot.classList.remove('bg-green-500', 'bg-red-500');
-      dot.classList.add('bg-amber-500');
-      dot.title = 'Offline-only mode';
+      const isOnline = navigator.onLine;
+      dot.classList.add(isOnline ? 'bg-green-500' : 'bg-red-500');
+      dot.title = isOnline ? 'Online' : 'Offline';
     }
     if (chip) {
       chip.textContent = 'OFFLINE-ONLY';
@@ -1095,8 +1096,8 @@
     const count = qs('shop-request-count');
     if (!queue) return;
     const activeUnits = state.db.units
-      .filter((unit) => unit.orders.length > 0 && unit.checkoutRequested)
-      .sort((a, b) => (a.checkoutRequestedAt || a.startTime || 0) - (b.checkoutRequestedAt || b.startTime || 0));
+      .filter((unit) => unit.orders.length > 0 || (state.db.carts[unit.id] || []).length > 0)
+      .sort((a, b) => (b.lastActivityAt || b.checkoutRequestedAt || b.startTime || 0) - (a.lastActivityAt || a.checkoutRequestedAt || a.startTime || 0));
     if (count) count.textContent = `${activeUnits.length} รายการ`;
     const queueToolbar = qs('shop-queue-toolbar');
     const queueToggle = qs('btn-toggle-queue-collapse');
@@ -1115,13 +1116,15 @@
       const cart = state.db.carts[unit.id] || [];
       const hasDraft = cart.length > 0;
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
-      const waitStart = unit.checkoutRequestedAt || unit.lastActivityAt || unit.startTime;
-      const waitText = waitStart ? `รอเช็คบิล ${formatDurationFrom(waitStart)}` : 'รอเช็คบิล';
+      const waitStart = unit.lastActivityAt || unit.checkoutRequestedAt || unit.startTime;
+      const waitText = unit.checkoutRequested
+        ? `รอเช็คบิล ${formatDurationFrom(unit.checkoutRequestedAt || waitStart)}`
+        : `กำลังใช้งาน ${formatDurationFrom(waitStart)}`;
       const checkoutActionLabel = hasDraft
         ? 'ไปส่งออร์เดอร์'
         : IS_CLIENT_NODE
           ? 'ดูสถานะ'
-          : 'เปิดบิล';
+          : (unit.checkoutRequested ? 'เปิดบิล' : 'ดูรายการ');
       const checkoutAction = hasDraft ? `openTable(${unit.id})` : `openCheckout(${unit.id})`;
       const checkoutRequestBtn = hasDraft
         ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 opacity-60 pointer-events-none">ขอเช็คบิล</button>`
@@ -1469,14 +1472,14 @@
     const previousPct = Math.max(8, Math.round((data.previousTotal / max) * 100));
     chart.innerHTML = `
       <div class="sales-compare-col">
-        <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
-        <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
-        <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
-      </div>
-      <div class="sales-compare-col">
         <div class="text-[11px] font-bold text-gray-500">${data.previousLabel}</div>
         <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
         <div class="sales-compare-bar-wrap"><div class="sales-compare-bar previous" style="height:${previousPct}%"></div></div>
+      </div>
+      <div class="sales-compare-col">
+        <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
+        <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
+        <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
       </div>
     `;
   }

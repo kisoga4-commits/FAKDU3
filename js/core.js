@@ -2558,6 +2558,7 @@ function getUnitCardClass(unit) {
       }).catch(() => {});
     }
     renderClientApprovalList();
+    updateApprovalInboxUi();
     showToast('มีคำขอเครื่องลูกใหม่', 'click');
   }
 
@@ -2701,13 +2702,13 @@ function getUnitCardClass(unit) {
   function renderClientApprovalList() {
     const box = qs('client-approval-list');
     const count = qs('client-approval-count');
-    if (count) count.textContent = `${state.db.sync.approvals.length} รายการ`;
-    if (!box) return;
-    if (!state.db.sync.approvals.length) {
-      box.innerHTML = '<div class="bg-gray-50 rounded-2xl border p-4 text-[11px] text-gray-400 font-bold">ยังไม่มีคำขอเข้าเครื่องลูก</div>';
-      return;
-    }
-    box.innerHTML = state.db.sync.approvals.map((item) => `
+    const modalCount = qs('client-approval-modal-count');
+    const modalBox = qs('client-approval-modal-list');
+    const total = state.db.sync.approvals.length;
+    if (count) count.textContent = `${total} รายการ`;
+    if (modalCount) modalCount.textContent = `${total} รายการ`;
+    const emptyHtml = '<div class="bg-gray-50 rounded-2xl border p-4 text-[11px] text-gray-400 font-bold">ยังไม่มีคำขอเข้าเครื่องลูก</div>';
+    const contentHtml = state.db.sync.approvals.map((item) => `
       <div class="bg-white rounded-2xl border p-4 shadow-sm flex items-center gap-3">
         <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center shrink-0">
           ${item.avatar ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : `<span class="font-black text-gray-600">${escapeHtml((item.name || 'C').slice(0, 1).toUpperCase())}</span>`}
@@ -2722,6 +2723,22 @@ function getUnitCardClass(unit) {
         </div>
       </div>
     `).join('');
+    if (box) box.innerHTML = total ? contentHtml : emptyHtml;
+    if (modalBox) modalBox.innerHTML = total ? contentHtml : emptyHtml;
+    updateApprovalInboxUi();
+  }
+
+  function updateApprovalInboxUi() {
+    const badge = qs('client-approval-badge');
+    if (!badge) return;
+    const total = Number(state.db.sync.approvals.length || 0);
+    badge.textContent = String(total > 99 ? '99+' : total);
+    badge.classList.toggle('hidden', total <= 0);
+  }
+
+  function openApprovalInbox() {
+    renderClientApprovalList();
+    openModal('modal-client-approvals');
   }
 
   function approveClient(clientId) {
@@ -2814,6 +2831,7 @@ function getUnitCardClass(unit) {
       });
     } catch (_) {}
     renderClientApprovalList();
+    updateApprovalInboxUi();
     renderOnlineClientsUi();
     saveDb({ render: false, sync: true });
     showToast('อนุมัติเครื่องลูกแล้ว', 'success');
@@ -2836,6 +2854,7 @@ function getUnitCardClass(unit) {
       emitSyncMessage({ type: 'MASTER_APPROVAL', payload: { clientId, approved: false, shopId: state.db.shopId } });
     } catch (_) {}
     renderClientApprovalList();
+    updateApprovalInboxUi();
     saveDb({ render: false, sync: false });
     syncMasterMetaToFirebase();
     showToast('ปฏิเสธคำขอแล้ว', 'click');
@@ -3407,6 +3426,7 @@ function getUnitCardClass(unit) {
     triggerSyncCheck,
     requestNewSyncKey,
     confirmNewSyncKey,
+    openApprovalInbox,
     openClientScanner,
     closeClientScanner,
     submitClientAccessRequest,

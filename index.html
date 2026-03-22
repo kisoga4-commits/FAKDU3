@@ -4,14 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#800000">
-    <title>FAKDU v9.47 - Pairing Refactor</title>
+    <title>FAKDU Offline-only</title>
 
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icon.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -38,8 +36,8 @@
             <div class="min-w-0 flex-1">
                 <h1 id="display-shop-name" class="font-black text-[28px] leading-none text-white drop-shadow-md truncate">FAKDU</h1>
                 <div class="hidden">
-                    <span id="shop-connection-text">ONLINE</span>
-                    <span id="shop-status-mini">Master พร้อมใช้งาน</span>
+                    <span id="shop-connection-text">OFFLINE</span>
+                    <span id="shop-status-mini">Local device mode</span>
                 </div>
                 <div id="header-client-strip" class="flex items-center gap-1.5 min-h-[18px] mt-1">
                     <div id="header-client-avatars" class="hidden items-center gap-1.5"></div>
@@ -52,11 +50,7 @@
         </div>
 
         <div class="flex flex-col items-end justify-center w-[30%] gap-2 z-10 pr-2">
-            <div id="header-online-clients-mini" class="min-h-[18px] flex items-center gap-1"></div>
-            <div class="flex items-center gap-2">
-                <button onclick="openClientEntryModal()" class="w-12 h-12 rounded-[18px] text-gray-700 shadow-md text-xl active:scale-95" title="เข้าโหมดเครื่องลูก">📱</button>
-            </div>
-            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU v9.47</div>
+            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU Offline</div>
         </div>
     </header>
     <!--** header close -->
@@ -124,7 +118,7 @@
         <div class="flex items-center justify-between mb-4">
             <div>
                 <h2 class="font-black text-2xl text-gray-800">คิวเช็คบิล</h2>
-                <p class="text-[11px] text-gray-500 font-bold">เครื่องลูกขอเช็คได้ แต่ปิดบิลจริงที่เครื่องแม่</p>
+                <p class="text-[11px] text-gray-500 font-bold">โหมดเช็คบิลแบบเครื่องเดียว (offline)</p>
             </div>
             <div id="shop-request-count" class="bg-gray-100 text-gray-600 px-3 py-2 rounded-xl text-xs font-black">0 รายการ</div>
         </div>
@@ -231,62 +225,9 @@
         <div class="flex justify-between items-center mb-6">
             <div>
                 <h2 class="font-black text-3xl text-gray-800">ระบบ</h2>
-                <p class="text-[11px] text-gray-500 font-bold">Sync / Recovery / Backup</p>
+                <p class="text-[11px] text-gray-500 font-bold">Offline / Recovery / Backup Local File</p>
             </div>
             <button onclick="adminLogout()" class="bg-red-50 text-red-600 border border-red-100 px-5 py-2 rounded-full font-black text-[11px] active:scale-95">🔒 ล็อคแอดมิน</button>
-        </div>
-
-        <div class="bg-white p-6 rounded-[28px] border shadow-sm mb-6">
-            <div class="flex items-start justify-between gap-4 mb-5">
-                <div>
-                    <h3 class="font-black text-slate-800 text-base mb-1">☁️ เชื่อมต่อเครื่องลูก / ตรวจข้อมูล</h3>
-                    <p class="text-[11px] text-gray-500 font-bold">PIN/QR ใช้สำหรับจับคู่เครื่องลูก ส่วนปุ่มเช็ค Sync ใช้หลังจับคู่แล้ว</p>
-                </div>
-                <div id="master-online-chip" class="px-3 py-1.5 rounded-full text-[10px] font-black bg-gray-100 text-gray-500">IDLE</div>
-            </div>
-
-            <div class="bg-slate-50 border border-slate-200 rounded-[24px] p-4 mb-4">
-                <div class="flex gap-3 items-center mb-3">
-                    <div id="sync-qr-area" class="w-20 h-20 bg-white rounded-2xl flex items-center justify-center border shadow-inner overflow-hidden">QR</div>
-                    <div class="flex-1">
-                        <p class="text-[10px] text-blue-500 font-bold uppercase mb-1">PIN/QR สำหรับจับคู่เครื่องลูก</p>
-                        <div id="display-sync-key" class="text-3xl font-mono text-slate-900 font-black tracking-[6px] leading-none">PIN</div>
-                        <p class="text-[10px] text-gray-400 font-bold mt-2">หลังกรอก PIN หรือสแกน QR เครื่องแม่ต้องกดยอมรับก่อน เครื่องลูกจึงจะเข้าโหมด Client</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="triggerSyncCheck(this)" id="btn-manual-sync" class="relative flex items-center justify-center gap-2 bg-white text-slate-700 border border-slate-200 py-3.5 rounded-2xl font-black text-xs active:scale-95 transition-all duration-300">
-                        <div class="flex items-center -space-x-1">
-                            <div id="sync-client-slot-1" class="w-7 h-7 rounded-full border-2 border-white bg-gray-100 text-[10px] text-gray-400 flex items-center justify-center overflow-hidden shadow-inner">1</div>
-                            <div id="sync-client-slot-2" class="w-7 h-7 rounded-full border-2 border-white bg-gray-100 text-[10px] text-gray-400 flex items-center justify-center overflow-hidden shadow-inner">2</div>
-                        </div>
-                        <span>เช็ค Sync</span>
-                    </button>
-                    <button id="btn-sync-new-key" onclick="requestNewSyncKey()" class="bg-slate-900 text-white py-3.5 rounded-2xl font-black text-xs active:scale-95">🔄 ขอรหัสใหม่</button>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div class="bg-gray-50 rounded-2xl p-4 border">
-                    <div class="text-[10px] text-gray-400 font-bold uppercase mb-2">สถานะตรวจล่าสุด</div>
-                    <div id="sync-check-status-text" class="font-black text-base text-gray-800">ยังไม่ได้ตรวจ</div>
-                    <div id="sync-check-status-hint" class="text-[11px] text-gray-500 font-bold mt-1">กดปุ่มเช็คเมื่อต้องการปิดร้านหรือเช็กความตรงกัน</div>
-                </div>
-                <div class="bg-gray-50 rounded-2xl p-4 border">
-                    <div class="flex items-center justify-between gap-2 mb-2">
-                        <div class="text-[10px] text-gray-400 font-bold uppercase">คำขอเครื่องลูก</div>
-                        <button onclick="openApprovalInbox()" class="relative px-3 py-1.5 rounded-full border border-amber-200 bg-white text-amber-700 text-[11px] font-black active:scale-95">
-                            🔔 คำขอ
-                            <span id="client-approval-badge" class="hidden absolute -top-2 -right-2 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[22px] text-center font-black">0</span>
-                        </button>
-                    </div>
-                    <div id="client-approval-count" class="font-black text-base text-gray-800">0 รายการ</div>
-                    <div class="text-[11px] text-gray-500 font-bold mt-1">ถ้าไม่เปิด popup อัตโนมัติ กด 🔔 เพื่อเข้าไปอนุมัติได้ทันที</div>
-                </div>
-            </div>
-
-            <div id="client-approval-list" class="hidden"></div>
         </div>
 
         <div id="pro-recovery-setup" class="bg-indigo-50 border-2 border-indigo-200 p-6 rounded-[28px] mb-6 shadow-sm">
@@ -588,103 +529,11 @@
     </div>
     <!--** modal-checkout close -->
 
-    <!--* modal-client-entry open -->
-    <div class="modal-overlay hidden" id="modal-client-entry">
-        <div class="modal-content">
-            <div class="text-center mb-5">
-                <h3 class="font-black text-2xl text-gray-800">การเชื่อมต่ออุปกรณ์</h3>
-                <p class="text-[11px] text-gray-500 font-bold mt-1">กรอก PIN หรือสแกน QR ของเครื่องแม่เพื่อขอเชื่อมต่อ</p>
-            </div>
-
-            <div class="bg-gray-50 border rounded-[24px] p-4 mb-4">
-                <div class="text-center mb-3">
-                    <div class="text-[10px] uppercase font-black text-blue-500 mb-1">กรอก PIN เครื่องใหม่</div>
-                    <input id="manual-pin" type="text" inputmode="numeric" placeholder="กรอก PIN 6 หลัก" class="w-full border-2 p-4 rounded-2xl text-center text-3xl font-mono font-black tracking-[8px] bg-white outline-none focus:border-primary uppercase">
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="submitClientAccess()" class="bg-blue-600 text-white py-4 rounded-[18px] font-black shadow-lg text-sm active:scale-95">เชื่อมต่อด้วย PIN</button>
-                    <button onclick="openClientScanner()" class="bg-white text-gray-700 border py-4 rounded-[18px] font-black text-sm active:scale-95">สแกน QR Code</button>
-                </div>
-            </div>
-
-            <div class="bg-amber-50 border border-amber-100 rounded-[20px] p-3 text-[11px] text-amber-700 font-bold leading-relaxed">
-                หลังกรอกหรือสแกนแล้ว เครื่องแม่ต้องกดยอมรับก่อน เครื่องลูกจึงจะเข้าโหมดใช้งานได้
-            </div>
-
-            <button onclick="closeModal('modal-client-entry')" class="w-full bg-gray-100 py-3.5 mt-4 rounded-xl font-black text-gray-500 text-sm active:scale-95">ปิดหน้าต่าง</button>
-        </div>
-    </div>
-    <!--** modal-client-entry close -->
-
-    <!--* modal-client-scanner open -->
-    <div class="modal-overlay hidden" id="modal-client-scanner">
-        <div class="modal-content">
-            <div class="flex items-center justify-between gap-3 mb-3">
-                <div>
-                    <h3 class="font-black text-xl text-gray-800">สแกน QR เครื่องแม่</h3>
-                    <p class="text-[11px] text-gray-500 font-bold">เมื่อสแกนสำเร็จ ระบบจะดึง PIN แล้วส่งคำขอเชื่อมต่อทันที</p>
-                </div>
-                <button onclick="closeClientScanner()" class="w-10 h-10 rounded-xl bg-gray-100 text-gray-500 font-black text-lg">✕</button>
-            </div>
-            <div id="qr-reader-index" class="w-full min-h-[260px] rounded-[24px] overflow-hidden bg-black/5 border"></div>
-            <button onclick="closeClientScanner()" class="w-full bg-gray-100 py-3.5 mt-4 rounded-xl font-black text-gray-500 text-sm active:scale-95">ปิดกล้อง</button>
-        </div>
-    </div>
-    <!--** modal-client-scanner close -->
-
-    <!--* modal-sync-key-confirm open -->
-    <div class="modal-overlay hidden" id="modal-sync-key-confirm">
-        <div class="modal-content text-center border-t-4 border-blue-500 max-w-[420px] w-[92vw] sm:w-full">
-            <h3 class="font-black text-2xl mb-1 text-slate-800">ยืนยันสร้าง PIN ใหม่</h3>
-            <p class="text-[12px] text-gray-500 mb-5 font-bold leading-relaxed">เครื่องลูกที่เคยเชื่อมต่อจะต้องขออนุมัติใหม่ทั้งหมด</p>
-            <div class="flex gap-3 w-full">
-                <button onclick="closeModal('modal-sync-key-confirm')" class="flex-1 bg-gray-100 py-3.5 rounded-[16px] font-black text-gray-500 text-sm">ยกเลิก</button>
-                <button onclick="confirmNewSyncKey()" class="flex-1 bg-slate-900 text-white py-3.5 rounded-[16px] font-black shadow-lg text-sm">ยืนยัน</button>
-            </div>
-        </div>
-    </div>
-    <!--** modal-sync-key-confirm close -->
-
-    <!--* modal-client-approvals open -->
-    <div class="modal-overlay hidden" id="modal-client-approvals">
-        <div class="modal-content max-w-[460px] w-[92vw] sm:w-full">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="font-black text-lg text-gray-800">🔔 คำขออนุมัติเครื่องลูก</h3>
-                <button onclick="closeModal('modal-client-approvals')" class="w-9 h-9 rounded-full bg-gray-100 text-gray-500 font-black text-lg">×</button>
-            </div>
-            <div id="client-approval-modal-count" class="text-xs text-gray-500 font-bold mb-3">0 รายการ</div>
-            <div id="client-approval-modal-list" class="space-y-3 max-h-[60vh] overflow-y-auto pr-1"></div>
-        </div>
-    </div>
-    <!--** modal-client-approvals close -->
-
-    <!--* modal-client-request-popup open -->
-    <div class="modal-overlay hidden master-approval-overlay" id="modal-client-request-popup" data-hook="master-approval-modal">
-        <div class="master-approval-backdrop" data-hook="master-approval-backdrop"></div>
-        <div class="modal-content master-approval-modal max-w-[380px] w-[92vw] sm:w-full text-center border-t-4 border-emerald-500">
-            <div class="text-[11px] font-black text-emerald-600 uppercase mb-2">คำขอเชื่อมต่อใหม่จากเครื่องลูก</div>
-            <h3 class="font-black text-xl text-gray-800 mb-1">อนุญาตการ Sync หรือไม่?</h3>
-            <p id="client-request-popup-total" class="text-[11px] text-gray-400 font-bold mb-4">คำขอเดียวในคิว</p>
-
-            <div class="bg-gray-50 border rounded-2xl p-4 flex items-center gap-3 text-left mb-4">
-                <div id="client-request-popup-avatar" class="w-14 h-14 rounded-full overflow-hidden bg-white border flex items-center justify-center shrink-0"></div>
-                <div class="min-w-0">
-                    <div id="client-request-popup-name" class="font-black text-gray-800 truncate">เครื่องลูก</div>
-                    <div id="client-request-popup-meta" class="text-[10px] text-gray-400 font-bold">PIN -</div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-                <button id="btn-master-reject-client" data-hook="master-reject-client" onclick="rejectNextClientRequest()" class="bg-red-50 border border-red-100 text-red-600 py-3.5 rounded-xl font-black text-sm">ปฏิเสธ</button>
-                <button id="btn-master-approve-client" data-hook="master-approve-client" onclick="approveNextClientRequest()" class="bg-emerald-500 text-white py-3.5 rounded-xl font-black text-sm shadow-md">ยอมรับ</button>
-            </div>
-
-            <button onclick="closeModal('modal-client-request-popup')" class="w-full bg-gray-100 py-3 mt-3 rounded-xl font-black text-gray-500 text-sm">ปิด</button>
-        </div>
-    </div>
-    <!--** modal-client-request-popup close -->
-
+    
+    
+    
+    
+    
     <div id="toast"></div>
 
     <script>
@@ -705,19 +554,6 @@
             el.style.display = 'none';
         };
 
-        window.openClientEntryModal = function() {
-            openModal('modal-client-entry');
-        };
-
-        window.submitClientAccess = function() {
-            if (typeof submitClientAccessRequest !== 'function') {
-                console.error('[FAKDU][SYNC] submitClientAccessRequest() is missing. Abort connect flow.');
-                if (typeof showToast === 'function') showToast('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่', 'error');
-                else alert('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่');
-                return;
-            }
-            submitClientAccessRequest();
-        };
 
         window.openProModal = window.openProModal || function() {
             openModal('modal-pro-unlock');
@@ -735,13 +571,9 @@
         }
     </script>
 
-    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
     <script src="js/db.js"></script>
-    <script src="js/sync.js"></script>
     <script src="js/vault.js"></script>
     <script src="js/core.js"></script>
-    <script src="js/client-core.js"></script>
 </div>
 
     <script>

@@ -1,9 +1,9 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '9.46';
-  const DB_NAME = 'FAKDU_V946_INDEXEDDB';
-  const DB_VERSION = 2;
+  const APP_VERSION = '10.00-offline';
+  const DB_NAME = 'FAKDU_OFFLINE_INDEXEDDB';
+  const DB_VERSION = 3;
 
   const STORE_KV = 'kv';
   const STORE_META = 'meta';

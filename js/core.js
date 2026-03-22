@@ -2193,7 +2193,7 @@ function getUnitCardClass(unit) {
       localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       await clearClientOpQueue();
       flushClientOpQueue();
-      showToast('เครื่องแม่อนุมัติแล้ว', 'success');
+      redirectToClientPage('เครื่องแม่อนุมัติแล้ว');
       return;
     }
     await invalidateClientSession('เครื่องแม่ปฏิเสธคำขอ');
@@ -2221,6 +2221,13 @@ function getUnitCardClass(unit) {
     }
   }
 
+  function redirectToClientPage(reason = '') {
+    if (!IS_CLIENT_NODE) return;
+    if (/client\.html$/i.test(window.location.pathname || '')) return;
+    if (reason) showToast(reason, 'success');
+    window.location.replace('client.html');
+  }
+
   async function persistClientSession(session = null) {
     if (session && typeof session === 'object') {
       localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));
@@ -2231,6 +2238,11 @@ function getUnitCardClass(unit) {
     if (dbApi && typeof dbApi.saveClientSession === 'function') {
       try {
         await dbApi.saveClientSession(session && typeof session === 'object' ? session : null);
+      } catch (_) {}
+    }
+    if (dbApi && typeof dbApi.saveClientShopId === 'function') {
+      try {
+        await dbApi.saveClientShopId(session?.shopId || '');
       } catch (_) {}
     }
   }
@@ -2592,9 +2604,7 @@ function getUnitCardClass(unit) {
     updateApprovalInboxUi();
     renderIncomingClientRequestPopup();
 
-    if (!IS_CLIENT_NODE && isNewRequest) {
-      try { openModal('modal-client-request-popup'); } catch (_) {}
-    }
+    if (!IS_CLIENT_NODE && isNewRequest) openMasterApprovalModal();
 
 
     showToast('มีคำขอเครื่องลูกใหม่', 'click');
@@ -2812,6 +2822,11 @@ function getUnitCardClass(unit) {
     badge.classList.toggle('hidden', total <= 0);
   }
 
+  function openMasterApprovalModal() {
+    renderIncomingClientRequestPopup();
+    try { openModal('modal-client-request-popup'); } catch (_) {}
+  }
+
   function openApprovalInbox() {
     renderClientApprovalList();
     openModal('modal-client-approvals');
@@ -2863,7 +2878,10 @@ function getUnitCardClass(unit) {
     }));
     const api = resolveFirebaseSyncApi();
     if (api && state.db.shopId) {
-      api.resolveJoinRequest(state.db.shopId, client.clientId, 'approved', {
+      const approveClientRequest = typeof api.approveClient === 'function'
+        ? api.approveClient.bind(api)
+        : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'approved', extra));
+      approveClientRequest(state.db.shopId, client.clientId, {
         approvedAt: Date.now(),
         approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
       }).catch(() => {});
@@ -2927,7 +2945,10 @@ function getUnitCardClass(unit) {
     logOperation('REJECT_CLIENT', { clientId });
     const api = resolveFirebaseSyncApi();
     if (api && state.db.shopId) {
-      api.resolveJoinRequest(state.db.shopId, clientId, 'rejected', {
+      const rejectClientRequest = typeof api.rejectClient === 'function'
+        ? api.rejectClient.bind(api)
+        : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'rejected', extra));
+      rejectClientRequest(state.db.shopId, clientId, {
         rejectedAt: Date.now(),
         rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
       }).catch(() => {});
@@ -3165,9 +3186,12 @@ function getUnitCardClass(unit) {
     let serverVersion = 0;
     try {
       let pinMap = null;
-      if (typeof api.readSyncPin === 'function') {
+      if (typeof api.lookupPinToShopId === 'function' || typeof api.readSyncPin === 'function') {
+        const lookupPin = typeof api.lookupPinToShopId === 'function'
+          ? api.lookupPinToShopId.bind(api)
+          : api.readSyncPin.bind(api);
         for (let attempt = 0; attempt < 3; attempt += 1) {
-          pinMap = await api.readSyncPin(pin);
+          pinMap = await lookupPin(pin);
           if (pinMap?.shopId && pinMap.active !== false) break;
           await new Promise((resolve) => setTimeout(resolve, 400));
         }
@@ -3186,7 +3210,10 @@ function getUnitCardClass(unit) {
         return;
       }
       if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
-      await api.writeJoinRequest(resolvedShopId, {
+      const sendJoinRequest = typeof api.sendJoinRequest === 'function'
+        ? api.sendJoinRequest.bind(api)
+        : api.writeJoinRequest.bind(api);
+      await sendJoinRequest(resolvedShopId, {
         clientId: profile.clientId,
         profileName: profile.profileName,
         avatar: profile.avatar,
@@ -3205,7 +3232,10 @@ function getUnitCardClass(unit) {
     try {
       const approvedPayload = await new Promise((resolve, reject) => {
         let timeoutId = null;
-        const stop = api.listenClient(resolvedShopId, profile.clientId, (payload) => {
+        const listenApprovalStatus = typeof api.listenClientApprovalStatus === 'function'
+          ? api.listenClientApprovalStatus.bind(api)
+          : api.listenClient.bind(api);
+        const stop = listenApprovalStatus(resolvedShopId, profile.clientId, (payload) => {
           if (!payload) return;
           if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
           if (!payload.approved) return;
@@ -3231,7 +3261,7 @@ function getUnitCardClass(unit) {
       await persistClientSession(sessionPayload);
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
-      window.location.href = 'client.html';
+      redirectToClientPage();
     } catch (error) {
       if (error?.message === 'rejected') {
         showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');

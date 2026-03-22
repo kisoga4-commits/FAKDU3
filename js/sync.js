@@ -54,6 +54,9 @@
     }
 
     return {
+      async lookupPinToShopId(pin = '') {
+        return this.readSyncPin(pin);
+      },
       async readSyncPin(pin = '') {
         const safePin = normalizeSyncPin(pin);
         if (safePin.length !== 6) return null;
@@ -174,6 +177,9 @@
           ref.off('child_changed', handler);
         };
       },
+      listenClientApprovalStatus(shopId = '', clientId = '', onStatus = () => {}) {
+        return this.listenClient(shopId, clientId, onStatus);
+      },
       listenClient(shopId = '', clientId = '', onClient = () => {}) {
         if (!shopId || !clientId) return () => {};
         const ref = db.ref(`${shopRoot(shopId)}/clients/${clientId}`);
@@ -217,6 +223,9 @@
           updatedAt: now
         });
       },
+      async sendJoinRequest(shopId = '', client = {}) {
+        return this.writeJoinRequest(shopId, client);
+      },
       async resolveJoinRequest(shopId = '', clientId = '', status = 'approved', extra = {}) {
         if (!shopId || !clientId) return;
         const safeStatus = String(status || '').toLowerCase() === 'rejected' ? 'rejected' : 'approved';
@@ -226,6 +235,12 @@
           ...extra,
           updatedAt: Date.now()
         });
+      },
+      async approveClient(shopId = '', clientId = '', extra = {}) {
+        return this.resolveJoinRequest(shopId, clientId, 'approved', extra);
+      },
+      async rejectClient(shopId = '', clientId = '', extra = {}) {
+        return this.resolveJoinRequest(shopId, clientId, 'rejected', extra);
       },
       async upsertClient(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;

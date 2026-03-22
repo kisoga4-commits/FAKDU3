@@ -727,7 +727,9 @@ hr {
 #modal-checkout,
 #modal-client-entry,
 #modal-client-scanner,
-#modal-sync-key-confirm {
+#modal-sync-key-confirm,
+#modal-client-approvals,
+#modal-client-request-popup {
   position: fixed;
   inset: 0;
   z-index: 120;
@@ -750,6 +752,8 @@ hr {
 #modal-client-entry.open,
 #modal-client-scanner.open,
 #modal-sync-key-confirm.open,
+#modal-client-approvals.open,
+#modal-client-request-popup.open,
 .modal.open {
   display: flex;
 }
@@ -765,6 +769,8 @@ hr {
 #modal-client-entry > *,
 #modal-client-scanner > *,
 #modal-sync-key-confirm > *,
+#modal-client-approvals > *,
+#modal-client-request-popup > *,
 .modal-sheet,
 .modal-card {
   width: 100%;
@@ -779,7 +785,8 @@ hr {
 }
 
 #modal-client-entry > *,
-#modal-client-scanner > * {
+#modal-client-scanner > *,
+#modal-client-request-popup > * {
   max-width: 430px;
 }
 

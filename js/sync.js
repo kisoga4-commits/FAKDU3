@@ -141,7 +141,11 @@
           });
         };
         ref.on('child_added', handler);
-        return () => ref.off('child_added', handler);
+        ref.on('child_changed', handler);
+        return () => {
+          ref.off('child_added', handler);
+          ref.off('child_changed', handler);
+        };
       },
       listenClientApprovalStatus(pin = '', clientId = '', requestIdOrCb = '', maybeCb = null) {
         const safeClientId = String(clientId || '').trim();

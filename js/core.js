@@ -677,8 +677,15 @@
     state.pendingAdminAction = { target, elementId: element?.id || null };
     const desc = qs('admin-pin-desc');
     if (desc) desc.textContent = target === 'manage' ? 'รหัสผ่านเพื่อเข้าหลังร้าน' : 'รหัสผ่านเพื่อเข้าระบบ';
-    if (qs('admin-pin-input')) qs('admin-pin-input').value = '';
+    const pinInput = qs('admin-pin-input');
+    if (pinInput) pinInput.value = '';
     openModal('modal-admin-pin');
+    if (pinInput) {
+      setTimeout(() => {
+        pinInput.focus();
+        pinInput.select();
+      }, 0);
+    }
   }
 
   function verifyAdminPin() {
@@ -2625,7 +2632,7 @@ function getUnitCardClass(unit) {
     renderIncomingClientRequestPopup();
     saveDb({ render: false, sync: false });
 
-    if (!IS_CLIENT_NODE && isNewRequest) openMasterApprovalModal();
+    if (!IS_CLIENT_NODE) openMasterApprovalModal();
 
 
     showToast('มีคำขอเครื่องลูกใหม่', 'click');
@@ -3235,18 +3242,21 @@ function getUnitCardClass(unit) {
     const profile = getClientProfile();
     let resolvedShopId = '';
     let serverVersion = 0;
+    let allowDirectPairRequest = false;
     const requestId = `${profile.clientId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     try {
       const pinMeta = typeof api.readSyncPin === 'function' ? await api.readSyncPin(pin) : null;
       if (!pinMeta || !pinMeta.pin) {
-        showToast('PIN ไม่ถูกต้องหรือหมดอายุ', 'error');
-        return;
+        allowDirectPairRequest = true;
+        resolvedShopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
+        serverVersion = Number(localStorage.getItem(LS_PENDING_SYNC_VERSION) || state.db.sync.syncVersion || 1);
+      } else {
+        resolvedShopId = String(pinMeta.shopId || localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
+        serverVersion = Number(pinMeta.syncVersion || localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
+        if (serverVersion <= 0) serverVersion = Number(state.db.sync.syncVersion || 1);
+        localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
+        localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
       }
-      resolvedShopId = String(pinMeta.shopId || localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
-      serverVersion = Number(pinMeta.syncVersion || localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
-      if (serverVersion <= 0) serverVersion = Number(state.db.sync.syncVersion || 1);
-      localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
-      localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
       const sendJoinRequest = typeof api.sendJoinRequest === 'function'
         ? api.sendJoinRequest.bind(api)
         : api.writeJoinRequest.bind(api);
@@ -3271,6 +3281,9 @@ function getUnitCardClass(unit) {
       console.warn('PIN verification failed', error);
       showToast('ตรวจสอบ PIN กับ cloud ไม่สำเร็จ', 'error');
       return;
+    }
+    if (allowDirectPairRequest) {
+      showToast('ไม่พบข้อมูล PIN บน cloud แต่ส่งคำขอหาเครื่องแม่แล้ว', 'click');
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
     localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
@@ -3550,6 +3563,21 @@ function getUnitCardClass(unit) {
     } catch (_) {}
   });
   document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (event.key === 'Enter' && target.id === 'admin-pin-input') {
+      event.preventDefault();
+      verifyAdminPin();
+      return;
+    }
+
+    if (event.key === 'Enter' && target.id === 'manual-pin') {
+      event.preventDefault();
+      submitClientAccessRequest();
+    }
+  });
   //* events close
 
   //* expose open

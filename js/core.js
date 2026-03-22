@@ -732,14 +732,6 @@
     grid.classList.add(state.gridZoom === 1 ? 'grid-cols-3' : state.gridZoom === 2 ? 'grid-cols-2' : 'grid-cols-1');
   }
 
- // codex/remove-notifications-and-fix-pin-access-f1rtk5
-  function getUnitCardClass(unit) {
-    const cart = state.db.carts[unit.id] || [];
-    if (cart.length > 0) return 'unit-card--draft';
-    if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
-    return 'unit-card--idle';
-  }
-
 function getUnitCardClass(unit) {
   const cart = state.db.carts[unit.id] || [];
   if (cart.length > 0) return 'unit-card--draft';

@@ -1,10 +1,9 @@
 (() => {
   'use strict';
 
-  //* constants open
   const APP_VERSION = '9.46';
   const DB_NAME = 'FAKDU_V946_INDEXEDDB';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
 
   const STORE_KV = 'kv';
   const STORE_META = 'meta';
@@ -19,7 +18,9 @@
   const KEY_CLIENT_APPLIED_OPERATIONS = 'client_applied_operations';
   const KEY_DRAFTS = 'drafts';
   const KEY_SETTINGS_CACHE = 'settings_cache';
+  const KEY_PENDING_PAIR = 'pending_pair';
   const KEY_MENU_IMAGE_CACHE_PREFIX = 'menu_image_cache:';
+  const KEY_RUNTIME_FLAGS = 'runtime_flags';
 
   const META_DEVICE_ID = 'device_install_id';
   const META_CREATED_AT = 'created_at';
@@ -32,9 +33,14 @@
 
   const LEGACY_MASTER_KEY = 'FAKDU_DB_V946';
   const LEGACY_DEVICE_KEY = 'FAKDU_DEVICE_INSTALL_ID';
-  //* constants close
+  const LEGACY_CLIENT_SESSION = 'FAKDU_CLIENT_SESSION';
+  const LEGACY_CLIENT_PROFILE_NAME = 'FAKDU_CLIENT_PROFILE_NAME';
+  const LEGACY_CLIENT_AVATAR = 'FAKDU_CLIENT_AVATAR';
+  const LEGACY_PENDING_PIN = 'FAKDU_PENDING_CLIENT_PIN';
+  const LEGACY_PENDING_SHOP_ID = 'FAKDU_PENDING_MASTER_SHOP_ID';
+  const LEGACY_PENDING_PAIR_REQUEST_ID = 'FAKDU_PENDING_PAIR_REQUEST_ID';
+  const LEGACY_FORCE_CLIENT_MODE = 'FAKDU_FORCE_CLIENT_MODE';
 
-  //* helpers open
   function hasIndexedDB() {
     return typeof indexedDB !== 'undefined';
   }
@@ -45,6 +51,10 @@
 
   function nowIso() {
     return new Date().toISOString();
+  }
+
+  function nowMs() {
+    return Date.now();
   }
 
   function randomHex(bytes = 8) {
@@ -61,49 +71,29 @@
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function safeParse(raw) {
+  function safeParse(raw, fallback = null) {
     try {
       return JSON.parse(raw);
     } catch (_) {
-      return null;
+      return fallback;
     }
   }
 
   function normalizeImportedBackup(parsed) {
     if (!parsed) throw new Error('ไฟล์สำรองข้อมูลว่างหรือไม่ถูกต้อง');
-
-    if (isObject(parsed) && isObject(parsed.payload)) {
-      return jsonClone(parsed.payload);
-    }
-
-    if (isObject(parsed) && isObject(parsed.data)) {
-      return jsonClone(parsed.data);
-    }
-
-    if (isObject(parsed) && isObject(parsed.db)) {
-      return jsonClone(parsed.db);
-    }
-
-    if (isObject(parsed)) {
-      return jsonClone(parsed);
-    }
-
+    if (isObject(parsed) && isObject(parsed.payload)) return jsonClone(parsed.payload);
+    if (isObject(parsed) && isObject(parsed.data)) return jsonClone(parsed.data);
+    if (isObject(parsed) && isObject(parsed.db)) return jsonClone(parsed.db);
+    if (isObject(parsed)) return jsonClone(parsed);
     throw new Error('รูปแบบไฟล์สำรองข้อมูลไม่รองรับ');
   }
-  //* helpers close
 
-  //* indexeddb core open
   let dbPromise = null;
 
   function openIndexedDB() {
     if (!hasIndexedDB()) {
       return Promise.reject(new Error('เบราว์เซอร์นี้ไม่รองรับ IndexedDB'));
     }
-
     if (dbPromise) return dbPromise;
 
     dbPromise = new Promise((resolve, reject) => {
@@ -111,17 +101,11 @@
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
-
-        if (!db.objectStoreNames.contains(STORE_KV)) {
-          db.createObjectStore(STORE_KV);
-        }
-
-        if (!db.objectStoreNames.contains(STORE_META)) {
-          db.createObjectStore(STORE_META);
-        }
+        if (!db.objectStoreNames.contains(STORE_KV)) db.createObjectStore(STORE_KV);
+        if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META);
       };
 
-      request.onsuccess = async () => {
+      request.onsuccess = () => {
         const db = request.result;
         db.onversionchange = () => {
           try { db.close(); } catch (_) {}
@@ -174,9 +158,7 @@
   }
 
   async function kvGet(key) {
-    return withStore(STORE_KV, 'readonly', async (store) => {
-      return idbRequestToPromise(store.get(key));
-    });
+    return withStore(STORE_KV, 'readonly', async (store) => idbRequestToPromise(store.get(key)));
   }
 
   async function kvSet(key, value) {
@@ -194,9 +176,7 @@
   }
 
   async function metaGet(key) {
-    return withStore(STORE_META, 'readonly', async (store) => {
-      return idbRequestToPromise(store.get(key));
-    });
+    return withStore(STORE_META, 'readonly', async (store) => idbRequestToPromise(store.get(key)));
   }
 
   async function metaSet(key, value) {
@@ -212,9 +192,7 @@
       return true;
     });
   }
-  //* indexeddb core close
 
-  //* persistence open
   async function requestPersistentStorage() {
     try {
       if (!navigator.storage || typeof navigator.storage.persist !== 'function') return false;
@@ -236,9 +214,7 @@
       return { quota: 0, usage: 0, usageDetails: {} };
     }
   }
-  //* persistence close
 
-  //* device id open
   async function getDeviceId() {
     const fromMeta = await metaGet(META_DEVICE_ID);
     if (fromMeta) return fromMeta;
@@ -257,14 +233,10 @@
     await metaSet(META_CREATED_AT, nowIso());
     await metaSet(META_DB_VERSION, DB_VERSION);
     await metaSet(META_APP_VERSION, APP_VERSION);
-    try {
-      localStorage.setItem(LEGACY_DEVICE_KEY, freshId);
-    } catch (_) {}
+    try { localStorage.setItem(LEGACY_DEVICE_KEY, freshId); } catch (_) {}
     return freshId;
   }
-  //* device id close
 
-  //* migration open
   async function migrateLegacyIfNeeded() {
     const existing = await kvGet(KEY_MASTER_DB);
     if (existing) return existing;
@@ -281,18 +253,71 @@
     await metaSet(META_APP_VERSION, APP_VERSION);
     return parsed;
   }
-  //* migration close
 
-  //* master data open
-  async function load() {
+  async function migrateLegacyClientSessionIfNeeded() {
+    const existing = await kvGet(KEY_CLIENT_SESSION);
+    if (existing) return existing;
+
+    const legacySession = safeParse(localStorage.getItem(LEGACY_CLIENT_SESSION));
+    if (legacySession && legacySession.clientSessionToken) {
+      await kvSet(KEY_CLIENT_SESSION, jsonClone(legacySession));
+      if (legacySession.shopId) await kvSet(KEY_CLIENT_SHOP_ID, String(legacySession.shopId));
+      return legacySession;
+    }
+    return null;
+  }
+
+  async function migrateLegacyClientProfileIfNeeded() {
+    const existing = await kvGet(KEY_CLIENT_PROFILE);
+    if (existing) return existing;
+
+    const profileName = String(localStorage.getItem(LEGACY_CLIENT_PROFILE_NAME) || '').trim();
+    const avatar = String(localStorage.getItem(LEGACY_CLIENT_AVATAR) || '').trim();
+    if (!profileName && !avatar) return null;
+
+    const profile = {
+      profileName: profileName || 'เครื่องลูก',
+      avatar,
+      clientId: ''
+    };
+    await kvSet(KEY_CLIENT_PROFILE, jsonClone(profile));
+    return profile;
+  }
+
+  async function migrateLegacyPendingPairIfNeeded() {
+    const existing = await kvGet(KEY_PENDING_PAIR);
+    if (existing) return existing;
+
+    const pin = String(localStorage.getItem(LEGACY_PENDING_PIN) || '').trim();
+    const shopId = String(localStorage.getItem(LEGACY_PENDING_SHOP_ID) || '').trim();
+    const requestId = String(localStorage.getItem(LEGACY_PENDING_PAIR_REQUEST_ID) || '').trim();
+    const forceClientMode = localStorage.getItem(LEGACY_FORCE_CLIENT_MODE) === 'true';
+    if (!pin && !shopId && !requestId && !forceClientMode) return null;
+
+    const pending = {
+      pin,
+      shopId,
+      requestId,
+      forceClientMode,
+      updatedAt: nowMs()
+    };
+    await kvSet(KEY_PENDING_PAIR, pending);
+    return pending;
+  }
+
+  async function bootstrap() {
     await requestPersistentStorage();
     await getDeviceId();
+    await migrateLegacyIfNeeded();
+    await migrateLegacyClientSessionIfNeeded();
+    await migrateLegacyClientProfileIfNeeded();
+    await migrateLegacyPendingPairIfNeeded();
+  }
 
+  async function load() {
+    await bootstrap();
     const existing = await kvGet(KEY_MASTER_DB);
-    if (existing) return jsonClone(existing);
-
-    const migrated = await migrateLegacyIfNeeded();
-    return migrated ? jsonClone(migrated) : null;
+    return existing ? jsonClone(existing) : null;
   }
 
   async function save(data) {
@@ -301,13 +326,9 @@
     await metaSet(META_LAST_SAVE_AT, nowIso());
     await metaSet(META_DB_VERSION, DB_VERSION);
     await metaSet(META_APP_VERSION, APP_VERSION);
-
     try {
       localStorage.setItem(LEGACY_MASTER_KEY, JSON.stringify(cloned));
-    } catch (_) {
-      // เผื่อข้อมูลใหญ่เกิน localStorage ให้ใช้ IndexedDB เป็นหลักต่อไป
-    }
-
+    } catch (_) {}
     return true;
   }
 
@@ -327,20 +348,25 @@
     try { localStorage.removeItem(LEGACY_MASTER_KEY); } catch (_) {}
     return true;
   }
-  //* master data close
 
-  //* client local open
   async function loadClientProfile() {
+    await bootstrap();
     const raw = await kvGet(KEY_CLIENT_PROFILE);
     return raw ? jsonClone(raw) : null;
   }
 
   async function saveClientProfile(profile) {
-    await kvSet(KEY_CLIENT_PROFILE, jsonClone(profile || {}));
+    const safeProfile = jsonClone(profile || {});
+    await kvSet(KEY_CLIENT_PROFILE, safeProfile);
+    try {
+      if (safeProfile.profileName) localStorage.setItem(LEGACY_CLIENT_PROFILE_NAME, String(safeProfile.profileName));
+      if (safeProfile.avatar) localStorage.setItem(LEGACY_CLIENT_AVATAR, String(safeProfile.avatar));
+    } catch (_) {}
     return true;
   }
 
   async function loadClientSession() {
+    await bootstrap();
     const raw = await kvGet(KEY_CLIENT_SESSION);
     return raw ? jsonClone(raw) : null;
   }
@@ -351,16 +377,25 @@
     if (safeSession && safeSession.shopId) {
       await kvSet(KEY_CLIENT_SHOP_ID, String(safeSession.shopId));
     }
+    try {
+      localStorage.setItem(LEGACY_CLIENT_SESSION, JSON.stringify(safeSession));
+      if (safeSession.shopId) localStorage.setItem(LEGACY_PENDING_SHOP_ID, String(safeSession.shopId));
+    } catch (_) {}
     return true;
   }
 
   async function clearClientSession() {
     await kvDelete(KEY_CLIENT_SESSION);
     await kvDelete(KEY_CLIENT_SHOP_ID);
+    try {
+      localStorage.removeItem(LEGACY_CLIENT_SESSION);
+      localStorage.removeItem(LEGACY_FORCE_CLIENT_MODE);
+    } catch (_) {}
     return true;
   }
 
   async function loadClientShopId() {
+    await bootstrap();
     const raw = await kvGet(KEY_CLIENT_SHOP_ID);
     return raw ? String(raw) : '';
   }
@@ -381,23 +416,9 @@
   }
 
   async function saveClientQueue(queue) {
-    await kvSet(KEY_CLIENT_QUEUE, Array.isArray(queue) ? jsonClone(queue) : []);
+    const safeQueue = Array.isArray(queue) ? jsonClone(queue).slice(-500) : [];
+    await kvSet(KEY_CLIENT_QUEUE, safeQueue);
     return true;
-  }
-
-  async function pushClientQueue(op) {
-    const queue = await loadClientQueue();
-    queue.push(jsonClone(op));
-    await saveClientQueue(queue);
-    return queue.length;
-  }
-
-  async function removeClientQueueByIds(opIds = []) {
-    const ids = new Set(Array.isArray(opIds) ? opIds : []);
-    const queue = await loadClientQueue();
-    const filtered = queue.filter((item) => !ids.has(item?.id));
-    await saveClientQueue(filtered);
-    return filtered.length;
   }
 
   async function clearClientQueue() {
@@ -411,46 +432,23 @@
   }
 
   async function saveClientLastSync(payload) {
-    await kvSet(KEY_CLIENT_LAST_SYNC, jsonClone(payload || {}));
+    await kvSet(KEY_CLIENT_LAST_SYNC, jsonClone(payload || null));
     return true;
   }
 
   async function loadClientAppliedOperations() {
     const raw = await kvGet(KEY_CLIENT_APPLIED_OPERATIONS);
-    return Array.isArray(raw) ? jsonClone(raw) : [];
+    return Array.isArray(raw) ? [...raw] : [];
   }
 
-  async function saveClientAppliedOperations(opIds = []) {
-    const safe = Array.from(new Set(Array.isArray(opIds) ? opIds.map((id) => String(id || '').trim()).filter(Boolean) : []));
+  async function saveClientAppliedOperations(opIds) {
+    const safe = Array.isArray(opIds)
+      ? opIds.filter(Boolean).map((v) => String(v)).slice(-1000)
+      : [];
     await kvSet(KEY_CLIENT_APPLIED_OPERATIONS, safe);
     return true;
   }
 
-  async function markClientAppliedOperation(opId = '') {
-    const safeOpId = String(opId || '').trim();
-    if (!safeOpId) return false;
-    const list = await loadClientAppliedOperations();
-    if (list.includes(safeOpId)) return true;
-    list.push(safeOpId);
-    const compact = list.slice(-1000);
-    await saveClientAppliedOperations(compact);
-    return true;
-  }
-
-  async function hasClientAppliedOperation(opId = '') {
-    const safeOpId = String(opId || '').trim();
-    if (!safeOpId) return false;
-    const list = await loadClientAppliedOperations();
-    return list.includes(safeOpId);
-  }
-
-  async function clearClientAppliedOperations() {
-    await kvDelete(KEY_CLIENT_APPLIED_OPERATIONS);
-    return true;
-  }
-  //* client local close
-
-  //* drafts open
   async function loadDrafts() {
     const raw = await kvGet(KEY_DRAFTS);
     return isObject(raw) ? jsonClone(raw) : {};
@@ -461,171 +459,117 @@
     return true;
   }
 
-  async function saveUnitDraft(unitId, draftPayload) {
-    const drafts = await loadDrafts();
-    drafts[String(unitId)] = jsonClone(draftPayload || {});
-    await saveDrafts(drafts);
-    return true;
-  }
-
-  async function loadUnitDraft(unitId) {
-    const drafts = await loadDrafts();
-    return drafts[String(unitId)] ? jsonClone(drafts[String(unitId)]) : null;
-  }
-
-  async function clearUnitDraft(unitId) {
-    const drafts = await loadDrafts();
-    delete drafts[String(unitId)];
-    await saveDrafts(drafts);
-    return true;
-  }
-  //* drafts close
-
-  //* cache helpers open
   async function loadSettingsCache() {
     const raw = await kvGet(KEY_SETTINGS_CACHE);
     return isObject(raw) ? jsonClone(raw) : {};
   }
 
-  async function saveSettingsCache(payload) {
-    await kvSet(KEY_SETTINGS_CACHE, isObject(payload) ? jsonClone(payload) : {});
+  async function saveSettingsCache(settings) {
+    await kvSet(KEY_SETTINGS_CACHE, isObject(settings) ? jsonClone(settings) : {});
     return true;
   }
 
-  async function loadMenuImageCache(shopId = '') {
-    const key = `${KEY_MENU_IMAGE_CACHE_PREFIX}${shopId || 'default'}`;
-    const raw = await kvGet(key);
+  async function loadMenuImageCache(shopId = 'DEFAULT') {
+    const raw = await kvGet(`${KEY_MENU_IMAGE_CACHE_PREFIX}${String(shopId || 'DEFAULT')}`);
     return isObject(raw) ? jsonClone(raw) : {};
   }
 
-  async function saveMenuImageCache(shopId = '', cache = {}) {
-    const key = `${KEY_MENU_IMAGE_CACHE_PREFIX}${shopId || 'default'}`;
-    await kvSet(key, isObject(cache) ? jsonClone(cache) : {});
+  async function saveMenuImageCache(shopId = 'DEFAULT', cache = {}) {
+    await kvSet(`${KEY_MENU_IMAGE_CACHE_PREFIX}${String(shopId || 'DEFAULT')}`, isObject(cache) ? jsonClone(cache) : {});
     return true;
   }
-  //* cache helpers close
 
-  //* backup open
-  async function exportData(data) {
-    const storage = await estimateStorage();
-    const payload = {
-      format: 'FAKDU_BACKUP',
-      app: 'FAKDU',
-      version: APP_VERSION,
-      schema: DB_VERSION,
-      exportedAt: nowIso(),
-      payload: jsonClone(data),
-      meta: {
-        deviceInstallId: await getDeviceId(),
-        storageQuota: Number(storage.quota || 0),
-        storageUsage: Number(storage.usage || 0)
-      }
-    };
-
-    await metaSet(META_LAST_BACKUP_AT, payload.exportedAt);
-    return JSON.stringify(payload, null, 2);
+  async function clearMenuImageCache(shopId = 'DEFAULT') {
+    await kvDelete(`${KEY_MENU_IMAGE_CACHE_PREFIX}${String(shopId || 'DEFAULT')}`);
+    return true;
   }
 
-  async function importData(raw) {
-    const parsed = typeof raw === 'string' ? safeParse(raw) : raw;
-    const imported = normalizeImportedBackup(parsed);
-    await metaSet(META_LAST_IMPORT_AT, nowIso());
-    return imported;
+  async function loadPendingPair() {
+    await bootstrap();
+    const raw = await kvGet(KEY_PENDING_PAIR);
+    return raw ? jsonClone(raw) : null;
   }
-  //* backup close
 
-  //* maintenance open
-  async function clearAll({ keepDeviceId = true } = {}) {
-    const deviceId = keepDeviceId ? await getDeviceId() : null;
-    const db = await openIndexedDB();
-
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction([STORE_KV, STORE_META], 'readwrite');
-      tx.objectStore(STORE_KV).clear();
-      tx.objectStore(STORE_META).clear();
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error || new Error('ล้างข้อมูลไม่สำเร็จ'));
-      tx.onabort = () => reject(tx.error || new Error('ยกเลิกล้างข้อมูล'));
-    });
-
+  async function savePendingPair(payload) {
+    const safe = isObject(payload) ? jsonClone(payload) : {};
+    safe.updatedAt = nowMs();
+    await kvSet(KEY_PENDING_PAIR, safe);
     try {
-      localStorage.removeItem(LEGACY_MASTER_KEY);
-      if (!keepDeviceId) localStorage.removeItem(LEGACY_DEVICE_KEY);
+      if (safe.pin) localStorage.setItem(LEGACY_PENDING_PIN, String(safe.pin));
+      if (safe.shopId) localStorage.setItem(LEGACY_PENDING_SHOP_ID, String(safe.shopId));
+      if (safe.requestId) localStorage.setItem(LEGACY_PENDING_PAIR_REQUEST_ID, String(safe.requestId));
+      if (safe.forceClientMode === true) localStorage.setItem(LEGACY_FORCE_CLIENT_MODE, 'true');
     } catch (_) {}
-
-    if (keepDeviceId && deviceId) {
-      await metaSet(META_DEVICE_ID, deviceId);
-      await metaSet(META_CREATED_AT, nowIso());
-      await metaSet(META_DB_VERSION, DB_VERSION);
-      await metaSet(META_APP_VERSION, APP_VERSION);
-      try { localStorage.setItem(LEGACY_DEVICE_KEY, deviceId); } catch (_) {}
-    }
-
     return true;
   }
 
-  async function getMetaSummary() {
-    const [deviceInstallId, createdAt, lastSaveAt, lastBackupAt, lastImportAt, persistentStorage] = await Promise.all([
-      metaGet(META_DEVICE_ID),
-      metaGet(META_CREATED_AT),
-      metaGet(META_LAST_SAVE_AT),
-      metaGet(META_LAST_BACKUP_AT),
-      metaGet(META_LAST_IMPORT_AT),
-      metaGet(META_PERSISTENT_OK)
-    ]);
+  async function clearPendingPair() {
+    await kvDelete(KEY_PENDING_PAIR);
+    try {
+      localStorage.removeItem(LEGACY_PENDING_PIN);
+      localStorage.removeItem(LEGACY_PENDING_SHOP_ID);
+      localStorage.removeItem(LEGACY_PENDING_PAIR_REQUEST_ID);
+      localStorage.removeItem(LEGACY_FORCE_CLIENT_MODE);
+    } catch (_) {}
+    return true;
+  }
 
-    const storage = await estimateStorage();
+  async function loadRuntimeFlags() {
+    const raw = await kvGet(KEY_RUNTIME_FLAGS);
+    return isObject(raw) ? jsonClone(raw) : {};
+  }
 
-    return {
-      appVersion: APP_VERSION,
-      schemaVersion: DB_VERSION,
-      deviceInstallId: deviceInstallId || '',
-      createdAt: createdAt || '',
-      lastSaveAt: lastSaveAt || '',
-      lastBackupAt: lastBackupAt || '',
-      lastImportAt: lastImportAt || '',
-      persistentStorage: Boolean(persistentStorage),
-      storageQuota: Number(storage.quota || 0),
-      storageUsage: Number(storage.usage || 0),
-      usageDetails: storage.usageDetails || {}
+  async function saveRuntimeFlags(flags) {
+    await kvSet(KEY_RUNTIME_FLAGS, isObject(flags) ? jsonClone(flags) : {});
+    return true;
+  }
+
+  async function exportBackup() {
+    const payload = {
+      version: APP_VERSION,
+      exportedAt: nowIso(),
+      data: await load(),
+      snapshot: await loadSnapshot(),
+      clientProfile: await loadClientProfile(),
+      clientSession: await loadClientSession(),
+      drafts: await loadDrafts(),
+      settings: await loadSettingsCache()
     };
+    await metaSet(META_LAST_BACKUP_AT, nowIso());
+    return payload;
   }
 
-  async function waitForReady(retry = 4) {
-    let lastError = null;
-    for (let i = 0; i < retry; i += 1) {
-      try {
-        await openIndexedDB();
-        await getDeviceId();
-        return true;
-      } catch (error) {
-        lastError = error;
-        await sleep(120 * (i + 1));
-      }
-    }
-      throw lastError || new Error('ฐานข้อมูลยังไม่พร้อม');
+  async function importBackup(rawInput) {
+    const parsed = typeof rawInput === 'string' ? safeParse(rawInput) : rawInput;
+    const normalized = normalizeImportedBackup(parsed);
+    await save(normalized);
+    await metaSet(META_LAST_IMPORT_AT, nowIso());
+    return true;
   }
-  //* maintenance close
 
-  //* public api open
-  const FakduDB = {
+  async function wipeClientLocal() {
+    await clearClientSession();
+    await clearClientQueue();
+    await kvDelete(KEY_CLIENT_PROFILE);
+    await kvDelete(KEY_CLIENT_LAST_SYNC);
+    await kvDelete(KEY_CLIENT_APPLIED_OPERATIONS);
+    await clearPendingPair();
+    return true;
+  }
+
+  async function getStorageInfo() {
+    return estimateStorage();
+  }
+
+  const api = {
     APP_VERSION,
     DB_NAME,
     DB_VERSION,
-
-    open: openIndexedDB,
-    ready: waitForReady,
-
     load,
     save,
-    exportData,
-    importData,
-    getDeviceId,
-
     saveSnapshot,
     loadSnapshot,
     clearMasterData,
-
     loadClientProfile,
     saveClientProfile,
     loadClientSession,
@@ -635,34 +579,38 @@
     saveClientShopId,
     loadClientQueue,
     saveClientQueue,
-    pushClientQueue,
-    removeClientQueueByIds,
     clearClientQueue,
     loadClientLastSync,
     saveClientLastSync,
     loadClientAppliedOperations,
     saveClientAppliedOperations,
-    markClientAppliedOperation,
-    hasClientAppliedOperation,
-    clearClientAppliedOperations,
-
     loadDrafts,
     saveDrafts,
-    saveUnitDraft,
-    loadUnitDraft,
-    clearUnitDraft,
-
     loadSettingsCache,
     saveSettingsCache,
     loadMenuImageCache,
     saveMenuImageCache,
-
+    clearMenuImageCache,
+    loadPendingPair,
+    savePendingPair,
+    clearPendingPair,
+    loadRuntimeFlags,
+    saveRuntimeFlags,
+    exportBackup,
+    importBackup,
+    wipeClientLocal,
+    getStorageInfo,
     requestPersistentStorage,
     estimateStorage,
-    getMetaSummary,
-    clearAll
+    getDeviceId,
+    bootstrap,
+    _kvGet: kvGet,
+    _kvSet: kvSet,
+    _kvDelete: kvDelete,
+    _metaGet: metaGet,
+    _metaSet: metaSet,
+    _metaDelete: metaDelete
   };
 
-  window.FakduDB = FakduDB;
-  //* public api close
+  window.FakduDB = api;
 })();

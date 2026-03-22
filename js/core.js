@@ -115,6 +115,7 @@
     audioCtx: null,
     hwid: '',
     isPro: false,
+    activeSalesCompare: 'today',
     lastClientHeartbeatAt: 0,
     lastCloudSessionCheckAt: 0,
     appliedOpsPersistTimer: null
@@ -726,7 +727,6 @@
     grid.classList.add(state.gridZoom === 1 ? 'grid-cols-3' : state.gridZoom === 2 ? 'grid-cols-2' : 'grid-cols-1');
   }
 
- // codex/remove-notifications-and-fix-pin-access-f1rtk5
   function getUnitCardClass(unit) {
     const cart = state.db.carts[unit.id] || [];
     if (cart.length > 0) return 'unit-card--draft';
@@ -734,12 +734,19 @@
     return 'unit-card--idle';
   }
 
-function getUnitCardClass(unit) {
-  const cart = state.db.carts[unit.id] || [];
-  if (cart.length > 0) return 'unit-card--draft';
-  if (unit.orders.length > 0 || unit.checkoutRequested) return 'unit-card--busy';
-  return 'unit-card--idle';
-}
+  function renderUnitItemThumbnails(rows = []) {
+    const map = new Map(state.db.items.map((item) => [String(item.id), item]));
+    const thumbs = [];
+    rows.forEach((row) => {
+      const match = map.get(String(row.itemId));
+      if (match && match.img && !thumbs.some((entry) => entry.src === match.img)) {
+        thumbs.push({ src: match.img, alt: match.name || row.baseName || row.name || 'เมนู' });
+      }
+    });
+    const visible = thumbs.slice(0, 3);
+    if (!visible.length) return '<div class="unit-item-thumbs"><span class="unit-item-thumb-fallback">🍽️</span></div>';
+    return `<div class="unit-item-thumbs">${visible.map((thumb) => `<img src="${thumb.src}" alt="${escapeHtml(thumb.alt)}">`).join('')}</div>`;
+  }
 
   function getUnitStatusMeta(unit) {
     const cart = state.db.carts[unit.id] || [];
@@ -788,6 +795,7 @@ function getUnitCardClass(unit) {
           ? `ยอดรวม ฿${formatMoney(total)}`
           : '-';
       const timeText = unit.startTime ? formatDurationFrom(unit.startTime) : '-';
+      const thumbRows = cart.length > 0 ? cart : unit.orders;
       return `
         <button onclick="openTable(${unit.id})" class="unit-status-ring ${statusMeta.cls} text-left p-4 rounded-[26px] border-2 shadow-sm transition active:scale-[0.98] ${getUnitCardClass(unit)}">
           <div class="flex items-start justify-between gap-2 mb-3">
@@ -801,6 +809,7 @@ function getUnitCardClass(unit) {
             </div>
           </div>
           <div class="text-[12px] font-black text-gray-700 mb-1">${secondary}</div>
+          ${renderUnitItemThumbnails(thumbRows)}
           <div class="flex justify-between items-center text-[10px] text-gray-500 font-bold">
             <span class="admin-timer" data-start="${unit.startTime || ''}">${timeText}</span>
             <span>${unit.orders.length > 0 ? `${unit.orders.reduce((s, o) => s + o.qty, 0)} รายการ` : `${cart.length} ตะกร้า`}</span>
@@ -1122,6 +1131,7 @@ function getUnitCardClass(unit) {
         : IS_CLIENT_NODE
           ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
           : '';
+      const thumbRows = hasDraft ? cart : unit.orders;
       return `
         <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border-2 shadow-sm relative ${getUnitCardClass(unit)}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
@@ -1136,6 +1146,7 @@ function getUnitCardClass(unit) {
             </div>
           </div>
           <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${hasDraft ? cart.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ') : unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
+          ${renderUnitItemThumbnails(thumbRows)}
           <div class="flex gap-2">
             <button onclick="${checkoutAction}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${checkoutActionLabel}</button>
             ${checkoutRequestBtn}
@@ -1371,6 +1382,104 @@ function getUnitCardClass(unit) {
     return { today, week, month, itemCounts };
   }
 
+  function formatDisplayDate(date) {
+    return new Date(date).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' });
+  }
+
+  function getSalesCompareData(mode = 'today') {
+    const today = new Date(getLocalYYYYMMDD());
+    const dayMs = 86400000;
+    let currentStart = new Date(today);
+    let currentEnd = new Date(today);
+    let previousStart = new Date(today);
+    let previousEnd = new Date(today);
+    let currentLabel = 'วันนี้';
+    let previousLabel = 'เมื่อวาน';
+    let title = 'เปรียบเทียบรายได้วันนี้ vs เมื่อวาน';
+    if (mode === 'week') {
+      currentStart = new Date(today.getTime() - (6 * dayMs));
+      previousStart = new Date(today.getTime() - (13 * dayMs));
+      previousEnd = new Date(today.getTime() - (7 * dayMs));
+      currentLabel = '7 วันล่าสุด';
+      previousLabel = '7 วันก่อนหน้า';
+      title = 'เปรียบเทียบรายได้ 7 วันล่าสุด vs 7 วันก่อนหน้า';
+    } else if (mode === 'month') {
+      const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+      currentStart = currentMonthStart;
+      previousStart = prevMonthStart;
+      previousEnd = prevMonthEnd;
+      currentLabel = 'เดือนนี้';
+      previousLabel = 'เดือนก่อน';
+      title = 'เปรียบเทียบรายได้เดือนนี้ vs เดือนก่อน';
+    } else {
+      previousStart = new Date(today.getTime() - dayMs);
+      previousEnd = new Date(today.getTime() - dayMs);
+    }
+    const toStr = (date) => getLocalYYYYMMDD(date);
+    const currentStartStr = toStr(currentStart);
+    const currentEndStr = toStr(currentEnd);
+    const previousStartStr = toStr(previousStart);
+    const previousEndStr = toStr(previousEnd);
+    const sumSales = (start, end) => state.db.sales
+      .filter((sale) => sale.date >= start && sale.date <= end)
+      .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
+    const currentTotal = sumSales(currentStartStr, currentEndStr);
+    const previousTotal = sumSales(previousStartStr, previousEndStr);
+    return {
+      currentTotal,
+      previousTotal,
+      currentLabel,
+      previousLabel,
+      title,
+      rangeText: `${formatDisplayDate(previousStart)} - ${formatDisplayDate(currentEnd)}`
+    };
+  }
+
+  function renderSalesCompare() {
+    const data = getSalesCompareData(state.activeSalesCompare);
+    const cardId = state.activeSalesCompare === 'week' ? 'card-stat-week' : state.activeSalesCompare === 'month' ? 'card-stat-month' : 'card-stat-today';
+    document.querySelectorAll('.sales-summary-card').forEach((card) => card.classList.remove('is-active'));
+    qs(cardId)?.classList?.add('is-active');
+    const title = qs('sales-compare-title');
+    const range = qs('sales-compare-range');
+    const chip = qs('sales-compare-change');
+    const chart = qs('sales-compare-chart');
+    if (title) title.textContent = data.title;
+    if (range) range.textContent = `ช่วงเวลา: ${data.rangeText}`;
+    const diff = data.currentTotal - data.previousTotal;
+    const isUp = diff >= 0;
+    if (chip) {
+      chip.textContent = `${isUp ? '▲' : '▼'} ${formatMoney(Math.abs(diff))}`;
+      chip.className = `text-xs font-black px-3 py-1.5 rounded-full ${isUp ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`;
+    }
+    const max = Math.max(data.currentTotal, data.previousTotal, 1);
+    const currentPct = Math.max(8, Math.round((data.currentTotal / max) * 100));
+    const previousPct = Math.max(8, Math.round((data.previousTotal / max) * 100));
+    if (chart) {
+      chart.innerHTML = `
+        <div class="sales-compare-col">
+          <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
+          <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
+          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
+        </div>
+        <div class="sales-compare-col">
+          <div class="text-[11px] font-bold text-gray-500">${data.previousLabel}</div>
+          <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
+          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar previous" style="height:${previousPct}%"></div></div>
+        </div>
+      `;
+    }
+  }
+
+  function selectSalesCompareMode(mode, element) {
+    state.activeSalesCompare = mode;
+    document.querySelectorAll('.sales-summary-card').forEach((card) => card.classList.remove('is-active'));
+    element?.classList?.add('is-active');
+    renderSalesCompare();
+  }
+
   function getSearchDateRange() {
     const today = getLocalYYYYMMDD();
     const startInput = qs('search-start');
@@ -1423,6 +1532,7 @@ function getUnitCardClass(unit) {
     if (qs('stat-grand-total')) qs('stat-grand-total').textContent = formatMoney(grandTotal);
     if (qs('stat-cash-total')) qs('stat-cash-total').textContent = formatMoney(cashTotal);
     if (qs('stat-transfer-total')) qs('stat-transfer-total').textContent = formatMoney(transferTotal);
+    renderSalesCompare();
 
     const filteredSales = getSalesBySelectedRange();
     const filteredItemCounts = {};
@@ -1858,8 +1968,7 @@ function getUnitCardClass(unit) {
   }
 
   function handleLockedFeatureClick() {
-    if (state.isPro) return;
-    openModal('modal-pro-unlock');
+    showToast('ฟีเจอร์นี้เปิดใช้งานแล้ว', 'success');
   }
 
   function openProModal() {
@@ -3612,6 +3721,7 @@ function getUnitCardClass(unit) {
     switchDashTab,
     calculateCustomSalesRealtime,
     clearSales,
+    selectSalesCompareMode,
     openMenuModal,
     editItem,
     addAddonField,

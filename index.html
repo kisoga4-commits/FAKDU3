@@ -49,8 +49,10 @@
             <div class="trial-badge-wrap">
                 <button id="trial-badge" onclick="openProModal()" class="bg-yellow-400 text-black px-5 py-1.5 rounded-full text-[13px] font-black cursor-pointer shadow-lg">ทดลองใช้งาน</button>
             </div>
-
-            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">●</div>
+            <div class="header-sub-mark text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">
+                <span class="header-sub-dot" aria-hidden="true">●</span>
+                <span>FAKDU</span>
+            </div>
         </div>
     </header>
     <!--** header close -->
@@ -161,10 +163,6 @@
                 <div id="sales-compare-chart" class="sales-compare-chart"></div>
             </div>
             <div class="grid grid-cols-3 gap-3 mb-6">
-                <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
-                    <div class="text-[10px] font-bold uppercase text-slate-700">เงินรวมสะสม</div>
-                    <div class="text-lg font-black text-slate-800">💰 ฿<span id="stat-grand-total">0</span></div>
-                </div>
                 <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100 text-center">
                     <div class="text-[10px] font-bold uppercase text-emerald-700">เงินสดสะสม</div>
                     <div class="text-lg font-black text-emerald-700">💵 ฿<span id="stat-cash-total">0</span></div>
@@ -172,6 +170,10 @@
                 <div class="bg-blue-50 p-3 rounded-2xl border border-blue-100 text-center">
                     <div class="text-[10px] font-bold uppercase text-blue-700">โอน/QR สะสม</div>
                     <div class="text-lg font-black text-blue-700">📱 ฿<span id="stat-transfer-total">0</span></div>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+                    <div class="text-[10px] font-bold uppercase text-slate-700">เงินรวมสะสม</div>
+                    <div class="text-lg font-black text-slate-800">💰 ฿<span id="stat-grand-total">0</span></div>
                 </div>
             </div>
 

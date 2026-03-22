@@ -50,7 +50,6 @@
                 <button id="trial-badge" onclick="openProModal()" class="bg-yellow-400 text-black px-5 py-1.5 rounded-full text-[13px] font-black cursor-pointer shadow-lg">ทดลองใช้งาน</button>
             </div>
             <div class="header-sub-mark text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">
-                <span class="header-sub-dot" aria-hidden="true">●</span>
                 <span>FAKDU</span>
             </div>
         </div>
@@ -118,8 +117,7 @@
     <section id="screen-shop" class="screen hidden p-5 pt-6">
         <div class="flex items-center justify-between mb-4">
             <div>
-                <h2 class="font-black text-2xl text-gray-800">คิวเช็คบิล</h2>
-                <p class="text-[11px] text-gray-500 font-bold">รอเช็คบิล</p>
+                <h2 class="font-black text-xl text-gray-800">คิวเช็คบิล</h2>
             </div>
             <div id="shop-request-count" class="bg-gray-100 text-gray-600 px-3 py-2 rounded-xl text-xs font-black">0 รายการ</div>
         </div>
@@ -151,16 +149,6 @@
                     <div class="text-[10px] font-bold uppercase">30 วัน</div>
                     <div class="text-xl font-black">฿<span id="stat-month">0</span></div>
                 </button>
-            </div>
-            <div class="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm mb-6">
-                <div class="flex items-center justify-between gap-3 mb-3">
-                    <div>
-                        <div id="sales-compare-title" class="font-black text-sm text-gray-800">เปรียบเทียบรายได้วันนี้ vs เมื่อวาน</div>
-                        <div id="sales-compare-range" class="text-[11px] font-bold text-gray-400 mt-1"></div>
-                    </div>
-                    <div id="sales-compare-change" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-100 text-slate-700">-</div>
-                </div>
-                <div id="sales-compare-chart" class="sales-compare-chart"></div>
             </div>
             <div class="grid grid-cols-3 gap-3 mb-6">
                 <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100 text-center">
@@ -236,7 +224,7 @@
         <div class="flex justify-between items-center mb-6">
             <div>
                 <h2 class="font-black text-3xl text-gray-800">ระบบ</h2>
-                <p class="text-[11px] text-gray-500 font-bold">Offline / Recovery / Backup Local File</p>
+                <p class="text-[11px] text-gray-500 font-bold">Offline-first / Recovery / Backup Local File</p>
             </div>
             <button onclick="adminLogout()" class="bg-red-50 text-red-600 border border-red-100 px-5 py-2 rounded-full font-black text-[11px] active:scale-95">🔒 ล็อคแอดมิน</button>
         </div>
@@ -290,7 +278,7 @@
                 </div>
             </div>
 
-            <label class="text-[10px] text-gray-400 font-bold mb-2 block uppercase">รูป QR รับเงิน (สำหรับ Offline)</label>
+            <label class="text-[10px] text-gray-400 font-bold mb-2 block uppercase">รูป QR รับเงิน (ใช้ได้แม้ไม่มีเน็ต)</label>
             <input type="file" accept="image/*" class="w-full border-2 p-2 rounded-xl text-xs font-bold mb-6 bg-gray-50" onchange="handleImage(event, 'qr')">
 
             <div class="border-t pt-6 mt-2">

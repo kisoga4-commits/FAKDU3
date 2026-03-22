@@ -659,6 +659,31 @@
     </div>
     <!--** modal-client-approvals close -->
 
+    <!--* modal-client-request-popup open -->
+    <div class="modal-overlay hidden" id="modal-client-request-popup">
+        <div class="modal-content max-w-[380px] w-[92vw] sm:w-full text-center border-t-4 border-emerald-500">
+            <div class="text-[11px] font-black text-emerald-600 uppercase mb-2">คำขอเชื่อมต่อใหม่จากเครื่องลูก</div>
+            <h3 class="font-black text-xl text-gray-800 mb-1">อนุญาตการ Sync หรือไม่?</h3>
+            <p id="client-request-popup-total" class="text-[11px] text-gray-400 font-bold mb-4">คำขอเดียวในคิว</p>
+
+            <div class="bg-gray-50 border rounded-2xl p-4 flex items-center gap-3 text-left mb-4">
+                <div id="client-request-popup-avatar" class="w-14 h-14 rounded-full overflow-hidden bg-white border flex items-center justify-center shrink-0"></div>
+                <div class="min-w-0">
+                    <div id="client-request-popup-name" class="font-black text-gray-800 truncate">เครื่องลูก</div>
+                    <div id="client-request-popup-meta" class="text-[10px] text-gray-400 font-bold">PIN -</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="rejectNextClientRequest()" class="bg-red-50 border border-red-100 text-red-600 py-3.5 rounded-xl font-black text-sm">ปฏิเสธ</button>
+                <button onclick="approveNextClientRequest()" class="bg-emerald-500 text-white py-3.5 rounded-xl font-black text-sm shadow-md">ยอมรับ</button>
+            </div>
+
+            <button onclick="closeModal('modal-client-request-popup')" class="w-full bg-gray-100 py-3 mt-3 rounded-xl font-black text-gray-500 text-sm">ปิด</button>
+        </div>
+    </div>
+    <!--** modal-client-request-popup close -->
+
     <div id="toast"></div>
 
     <script>

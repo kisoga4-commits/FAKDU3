@@ -2561,9 +2561,10 @@ function getUnitCardClass(unit) {
     }
     renderClientApprovalList();
     updateApprovalInboxUi();
+    renderIncomingClientRequestPopup();
 
     if (!IS_CLIENT_NODE && isNewRequest) {
-      try { openModal('modal-client-approvals'); } catch (_) {}
+      try { openModal('modal-client-request-popup'); } catch (_) {}
     }
 
 
@@ -2734,6 +2735,43 @@ function getUnitCardClass(unit) {
     if (box) box.innerHTML = total ? contentHtml : emptyHtml;
     if (modalBox) modalBox.innerHTML = total ? contentHtml : emptyHtml;
     updateApprovalInboxUi();
+    renderIncomingClientRequestPopup();
+  }
+
+  function renderIncomingClientRequestPopup() {
+    const modal = qs('modal-client-request-popup');
+    const nameEl = qs('client-request-popup-name');
+    const metaEl = qs('client-request-popup-meta');
+    const avatarEl = qs('client-request-popup-avatar');
+    const totalEl = qs('client-request-popup-total');
+    if (!modal || !nameEl || !metaEl || !avatarEl) return;
+
+    const pending = Array.isArray(state.db.sync.approvals) ? state.db.sync.approvals : [];
+    const total = pending.length;
+    if (totalEl) totalEl.textContent = total > 1 ? `ยังเหลืออีก ${total - 1} คำขอ` : 'คำขอเดียวในคิว';
+    if (!total) {
+      closeModal('modal-client-request-popup');
+      return;
+    }
+    const item = pending[0];
+    const label = item.profileName || item.name || item.clientId || 'เครื่องลูก';
+    nameEl.textContent = label;
+    metaEl.textContent = `PIN ${item.pin || '-'} • ${thaiDate(item.requestedAt || Date.now())}`;
+    avatarEl.innerHTML = item.avatar
+      ? `<img src="${item.avatar}" class="w-full h-full object-cover">`
+      : `<span class="font-black text-gray-600 text-xl">${escapeHtml((label || 'C').slice(0, 1).toUpperCase())}</span>`;
+  }
+
+  function approveNextClientRequest() {
+    const item = Array.isArray(state.db.sync.approvals) ? state.db.sync.approvals[0] : null;
+    if (!item?.clientId) return;
+    approveClient(item.clientId);
+  }
+
+  function rejectNextClientRequest() {
+    const item = Array.isArray(state.db.sync.approvals) ? state.db.sync.approvals[0] : null;
+    if (!item?.clientId) return;
+    rejectClient(item.clientId);
   }
 
   function updateApprovalInboxUi() {
@@ -2842,6 +2880,7 @@ function getUnitCardClass(unit) {
     updateApprovalInboxUi();
 
     if (!state.db.sync.approvals.length) closeModal('modal-client-approvals');
+    if (!state.db.sync.approvals.length) closeModal('modal-client-request-popup');
 
  
     renderOnlineClientsUi();
@@ -2869,6 +2908,7 @@ function getUnitCardClass(unit) {
     updateApprovalInboxUi();
 
     if (!state.db.sync.approvals.length) closeModal('modal-client-approvals');
+    if (!state.db.sync.approvals.length) closeModal('modal-client-request-popup');
 
 
     saveDb({ render: false, sync: false });
@@ -3453,7 +3493,9 @@ function getUnitCardClass(unit) {
     adjustAddonQty,
     confirmAddonSelection,
     approveClient,
+    approveNextClientRequest,
     rejectClient,
+    rejectNextClientRequest,
     markCheckoutRequest
   });
   //* expose close

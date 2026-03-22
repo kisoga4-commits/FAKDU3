@@ -30,6 +30,46 @@
     window.location.replace(path);
   }
 
+  function readPendingConnect() {
+    const pin = String(localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || '').trim();
+    const shopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '').trim();
+    const clientId = String(localStorage.getItem('FAKDU_CLIENT_ID') || '').trim();
+    return { pin, shopId, clientId };
+  }
+
+  function listenApprovalAndRedirectIfNeeded() {
+    if (isClientPage()) return;
+    const hasSession = !!readClientSession();
+    if (hasSession) return;
+    const pending = readPendingConnect();
+    if (!pending.shopId || !pending.clientId) return;
+    const api = window.FakduSync?.resolveApi?.();
+    if (!api) return;
+    const listenFn = typeof api.listenClientApprovalStatus === 'function'
+      ? api.listenClientApprovalStatus.bind(api)
+      : api.listenClient?.bind(api);
+    if (typeof listenFn !== 'function') return;
+    listenFn(pending.shopId, pending.clientId, async (payload) => {
+      if (!payload) return;
+      if (payload.approved === true && payload.clientSessionToken) {
+        const session = {
+          shopId: pending.shopId,
+          clientId: pending.clientId,
+          profileName: String(localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'เครื่องลูก'),
+          clientSessionToken: payload.clientSessionToken,
+          syncVersion: Number(payload.sessionSyncVersion || payload.syncVersion || 1)
+        };
+        localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));
+        localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
+        if (window.FakduDB?.saveClientSession) await window.FakduDB.saveClientSession(session);
+        redirectTo(CLIENT_PAGE);
+      }
+      if (payload.approved === false || String(payload.status || '').toLowerCase() === 'rejected') {
+        localStorage.removeItem(LS_FORCE_CLIENT_MODE);
+      }
+    });
+  }
+
   const ready = () => {
     const hasSession = !!readClientSession();
     const forceClientMode = localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true';
@@ -44,6 +84,7 @@
       redirectTo(INDEX_PAGE);
       return;
     }
+    listenApprovalAndRedirectIfNeeded();
 
     document.documentElement?.setAttribute('data-client-core', 'ready');
   };

@@ -790,6 +790,29 @@ hr {
   max-width: 430px;
 }
 
+.master-approval-overlay {
+  z-index: 320 !important;
+}
+
+.master-approval-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.56);
+}
+
+.master-approval-modal {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 420px);
+  border-radius: 24px !important;
+}
+
+#btn-master-approve-client,
+#btn-master-reject-client {
+  min-height: 50px;
+  font-size: 0.95rem;
+}
+
 #admin-pin-input,
 #manual-pin,
 #pro-key-input,

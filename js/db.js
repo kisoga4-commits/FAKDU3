@@ -13,6 +13,7 @@
   const KEY_MASTER_SNAPSHOT = 'master_snapshot';
   const KEY_CLIENT_PROFILE = 'client_profile';
   const KEY_CLIENT_SESSION = 'client_session';
+  const KEY_CLIENT_SHOP_ID = 'client_shop_id';
   const KEY_CLIENT_QUEUE = 'client_queue';
   const KEY_CLIENT_LAST_SYNC = 'client_last_sync';
   const KEY_CLIENT_APPLIED_OPERATIONS = 'client_applied_operations';
@@ -345,12 +346,32 @@
   }
 
   async function saveClientSession(session) {
-    await kvSet(KEY_CLIENT_SESSION, jsonClone(session || {}));
+    const safeSession = jsonClone(session || {});
+    await kvSet(KEY_CLIENT_SESSION, safeSession);
+    if (safeSession && safeSession.shopId) {
+      await kvSet(KEY_CLIENT_SHOP_ID, String(safeSession.shopId));
+    }
     return true;
   }
 
   async function clearClientSession() {
     await kvDelete(KEY_CLIENT_SESSION);
+    await kvDelete(KEY_CLIENT_SHOP_ID);
+    return true;
+  }
+
+  async function loadClientShopId() {
+    const raw = await kvGet(KEY_CLIENT_SHOP_ID);
+    return raw ? String(raw) : '';
+  }
+
+  async function saveClientShopId(shopId = '') {
+    const safeShopId = String(shopId || '').trim();
+    if (!safeShopId) {
+      await kvDelete(KEY_CLIENT_SHOP_ID);
+      return true;
+    }
+    await kvSet(KEY_CLIENT_SHOP_ID, safeShopId);
     return true;
   }
 
@@ -610,6 +631,8 @@
     loadClientSession,
     saveClientSession,
     clearClientSession,
+    loadClientShopId,
+    saveClientShopId,
     loadClientQueue,
     saveClientQueue,
     pushClientQueue,

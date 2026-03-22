@@ -1112,33 +1112,47 @@ hr {
 
 @media (max-width: 460px) {
   .app-container {
-    padding: 8px 8px 24px;
+    padding: 8px 8px 20px;
   }
 
   .glass-header {
-    padding: 16px 14px;
-    border-radius: 28px;
+    padding: 14px 12px;
+    border-radius: 24px;
+    margin-bottom: 12px;
   }
 
   #display-shop-name {
-    font-size: 1.7rem !important;
+    font-size: 1.48rem !important;
   }
 
   #shop-logo {
-    width: 68px;
-    height: 68px;
+    width: 58px;
+    height: 58px;
+    border-radius: 14px !important;
+  }
+
+  #online-status-dot {
+    width: 15px !important;
+    height: 15px !important;
   }
 
   .nav-tab {
-    min-height: 56px;
+    min-height: 54px;
     font-size: 0.8rem;
-    gap: 4px;
+    gap: 2px;
+    border-radius: 12px;
   }
 
   .top-nav {
-    gap: 8px;
-    padding: 6px;
-    border-radius: 20px;
+    position: sticky;
+    top: 8px;
+    z-index: 40;
+    gap: 6px;
+    padding: 5px;
+    margin-bottom: 10px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
   }
 
   .nav-label {
@@ -1151,8 +1165,10 @@ hr {
   }
 
   #trial-badge {
-    padding: 6px 14px !important;
-    font-size: 12px !important;
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+    min-height: 32px;
+    border-radius: 11px !important;
   }
 
   .header-app-name {
@@ -1182,7 +1198,7 @@ hr {
   #screen-manage,
   #screen-system,
   #screen-order {
-    padding-inline: 10px !important;
+    padding-inline: 8px !important;
   }
 
   #screen-manage .grid.grid-cols-2,
@@ -1199,6 +1215,44 @@ hr {
 
   #screen-manage .grid.grid-cols-3.gap-3.mb-6 {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  #screen-manage .sales-summary-card {
+    border-radius: 18px !important;
+    padding: 10px !important;
+  }
+
+  #screen-manage .sales-summary-card .text-xl {
+    font-size: 1.1rem !important;
+    line-height: 1.1;
+  }
+
+  #sales-history > *,
+  #dash-top > *,
+  #dash-history > *,
+  #shop-queue > *,
+  #admin-menu-list > * {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  #item-list {
+    margin-bottom: 138px !important;
+  }
+
+  #screen-order > .fixed {
+    max-width: calc(100vw - 8px) !important;
+    border-radius: 18px 18px 0 0 !important;
+    padding: 12px 12px 18px !important;
+  }
+
+  .send-order-btn {
+    min-width: 128px;
+    padding: 11px 14px !important;
+    border-radius: 14px !important;
+    font-size: 0.92rem !important;
   }
 
   #modal-admin-pin > *,
@@ -1213,6 +1267,43 @@ hr {
   #modal-client-scanner > * {
     border-radius: 26px;
     padding: 18px;
+  }
+}
+
+@media (max-width: 360px) {
+  .glass-header {
+    padding: 12px 10px;
+    border-radius: 20px;
+  }
+
+  #display-shop-name {
+    font-size: 1.3rem !important;
+  }
+
+  #shop-logo {
+    width: 52px;
+    height: 52px;
+  }
+
+  .top-nav {
+    top: 6px;
+    border-radius: 14px;
+  }
+
+  .nav-icon {
+    font-size: 1rem;
+  }
+
+  .nav-label {
+    font-size: 8px;
+  }
+
+  #screen-customer,
+  #screen-shop,
+  #screen-manage,
+  #screen-system,
+  #screen-order {
+    padding-inline: 6px !important;
   }
 }
 

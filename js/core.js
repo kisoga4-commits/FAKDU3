@@ -2574,7 +2574,7 @@ function getUnitCardClass(unit) {
     const incomingPin = String(client.pin || '');
     if (incomingPin && incomingPin !== activePin) return;
     const activeVersion = Number(state.db.sync.syncVersion || 1);
-    const incomingVersion = Number(client.syncVersion || activeVersion);
+    const incomingVersion = Number(client.syncVersion || 0) || activeVersion;
     if (incomingVersion !== activeVersion) return;
     if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
       return;
@@ -3122,7 +3122,7 @@ function getUnitCardClass(unit) {
     openModal('modal-sync-key-confirm');
   }
 
-  function confirmNewSyncKey() {
+  async function confirmNewSyncKey() {
     const today = getLocalYYYYMMDD();
     const sameDay = String(state.db.sync.keyResetDate || '') === String(today);
     const usedToday = sameDay ? Number(state.db.sync.keyResetCount || 0) : 0;
@@ -3160,7 +3160,8 @@ function getUnitCardClass(unit) {
     } catch (_) {}
     updateSyncUi();
     saveDb({ render: false, sync: true });
-    syncMasterMetaToFirebase();
+    await syncMasterMetaToFirebase();
+    await bindSyncChannel();
     showToast('สร้างรหัสใหม่แล้ว', 'success');
   }
   //* sync close
@@ -3236,8 +3237,16 @@ function getUnitCardClass(unit) {
     let serverVersion = 0;
     const requestId = `${profile.clientId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     try {
-      resolvedShopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
-      serverVersion = Number(localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
+      const pinMeta = typeof api.readSyncPin === 'function' ? await api.readSyncPin(pin) : null;
+      if (!pinMeta || !pinMeta.pin) {
+        showToast('PIN ไม่ถูกต้องหรือหมดอายุ', 'error');
+        return;
+      }
+      resolvedShopId = String(pinMeta.shopId || localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
+      serverVersion = Number(pinMeta.syncVersion || localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
+      if (serverVersion <= 0) serverVersion = Number(state.db.sync.syncVersion || 1);
+      localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
+      localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
       const sendJoinRequest = typeof api.sendJoinRequest === 'function'
         ? api.sendJoinRequest.bind(api)
         : api.writeJoinRequest.bind(api);

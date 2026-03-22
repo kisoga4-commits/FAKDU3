@@ -119,8 +119,7 @@
     lastCloudSessionCheckAt: 0,
     appliedOpsPersistTimer: null
   };
-  const CLIENT_MODE_QUERY = new URLSearchParams(window.location.search || '').get('mode') === 'client';
-  const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '') || CLIENT_MODE_QUERY;
+  const IS_CLIENT_NODE = false;
   //* constants close
 
   //* adapter open
@@ -198,15 +197,14 @@
   }
   function getActorLabel() {
     if (IS_CLIENT_NODE) return 'client';
-    return state.isAdminLoggedIn ? 'admin' : 'master';
+    return state.isAdminLoggedIn ? 'admin' : 'staff';
   }
   function getCurrentProfileName() {
     if (IS_CLIENT_NODE) return getClientProfile().profileName;
-    return state.db.shopName || 'เครื่องแม่';
+    return state.db.shopName || 'FAKDU';
   }
   function getCurrentDeviceId() {
-    if (IS_CLIENT_NODE) return getClientProfile().clientId;
-    return state.hwid || state.db.sync.masterDeviceId || 'MASTER';
+    return state.hwid || 'LOCAL';
   }
   function canManageOrders() {
     return !IS_CLIENT_NODE && state.isAdminLoggedIn;
@@ -258,7 +256,7 @@
   function getClientProfile() {
     return {
       clientId: ensureClientId(),
-      profileName: localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'เครื่องลูก',
+      profileName: localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'อุปกรณ์เสริม',
       avatar: localStorage.getItem('FAKDU_CLIENT_AVATAR') || ''
     };
   }
@@ -493,14 +491,13 @@
   //* normalize close
 
   //* save/load open
-  async function saveDb({ render = true, sync = true } = {}) {
+  async function saveDb({ render = true } = {}) {
     clearTimeout(state.autoSaveTimer);
     state.autoSaveTimer = setTimeout(async () => {
       const dbApi = resolveDbApi();
       await dbApi.save(state.db);
       if (render) renderAll();
-      if (!IS_CLIENT_NODE) syncMasterMetaToFirebase();
-      if (sync) broadcastSnapshot();
+
     }, 30);
   }
 
@@ -573,31 +570,28 @@
 
   //* header and status open
   function updateMasterConnectionUi() {
-    const online = navigator.onLine;
     const dot = qs('online-status-dot');
     const chip = qs('shop-connection-text');
     const mini = qs('shop-status-mini');
     const systemChip = qs('master-online-chip');
     if (dot) {
-      dot.classList.toggle('bg-green-500', online);
-      dot.classList.toggle('bg-red-500', !online);
+      dot.classList.remove('bg-green-500', 'bg-red-500');
+      dot.classList.add('bg-amber-500');
+      dot.title = 'Offline-only mode';
     }
     if (chip) {
-      chip.textContent = online ? 'ONLINE' : 'OFFLINE';
-      chip.className = online
-        ? 'text-[10px] font-black px-2 py-0.5 rounded-full bg-white/90 text-emerald-700'
-        : 'text-[10px] font-black px-2 py-0.5 rounded-full bg-white/90 text-red-600';
+      chip.textContent = 'OFFLINE-ONLY';
+      chip.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-white/90 text-amber-700';
     }
-    if (mini) mini.textContent = online ? 'พร้อมใช้งาน' : 'กำลังทำงานแบบออฟไลน์';
+    if (mini) mini.textContent = 'บันทึกเฉพาะในเครื่อง';
     if (systemChip) {
-      systemChip.textContent = online ? 'MASTER ONLINE' : 'MASTER OFFLINE';
-      systemChip.className = online
-        ? 'px-3 py-1.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700'
-        : 'px-3 py-1.5 rounded-full text-[10px] font-black bg-red-50 text-red-700';
+      systemChip.textContent = 'LOCAL ONLY';
+      systemChip.className = 'px-3 py-1.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700';
     }
   }
 
   function renderOnlineClientsUi() {
+    return;
     const clients = state.db.sync.clients.filter((client) => client.approved && Number(client.sessionSyncVersion || 0) === Number(state.db.sync.syncVersion || 1));
     const onlineClients = clients.filter((client) => getClientStatus(client) === 'online');
     const strip = qs('header-client-avatars');
@@ -1029,7 +1023,7 @@ function getUnitCardClass(unit) {
     if (!unit || !cart.length) return showToast('ไม่มีรายการส่ง', 'error');
     if (IS_CLIENT_NODE) {
       const session = getStoredClientSession();
-      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องแม่', 'error');
+      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องหลัก', 'error');
       const profile = getClientProfile();
       const action = {
         type: 'APPEND_ORDER',
@@ -1050,7 +1044,7 @@ function getUnitCardClass(unit) {
       renderOrderedItemsBar(unit);
       updateCartTotal();
       saveDb({ render: true, sync: false });
-      showToast(navigator.onLine ? 'ส่งออร์เดอร์ไปเครื่องแม่แล้ว' : 'บันทึกคิวไว้แล้ว จะซิงก์เมื่อออนไลน์', navigator.onLine ? 'success' : 'click');
+      showToast(navigator.onLine ? 'ส่งออร์เดอร์ไปเครื่องหลักแล้ว' : 'บันทึกคิวไว้แล้ว จะซิงก์เมื่อออนไลน์', navigator.onLine ? 'success' : 'click');
       switchTab('customer', qs('tab-customer'));
       return;
     }
@@ -1155,12 +1149,12 @@ function getUnitCardClass(unit) {
     const unit = state.db.units.find((row) => row.id === Number(unitId));
     if (!unit) return;
     if (IS_CLIENT_NODE && unit.checkoutRequested) {
-      showToast('ส่งคำขอเช็คบิลแล้ว รอเครื่องแม่ดำเนินการ', 'click');
+      showToast('ส่งคำขอเช็คบิลแล้ว รอเครื่องหลักดำเนินการ', 'click');
       return;
     }
     if (IS_CLIENT_NODE) {
       const session = getStoredClientSession();
-      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องแม่', 'error');
+      if (!session?.clientSessionToken) return showToast('ยังไม่ได้รับสิทธิ์จากเครื่องหลัก', 'error');
       const profile = getClientProfile();
       const action = {
         type: 'REQUEST_CHECKOUT',
@@ -1174,7 +1168,7 @@ function getUnitCardClass(unit) {
       };
       await enqueueClientOp(action);
       await flushClientOpQueue();
-      showToast(navigator.onLine ? 'ส่งคำขอเช็คบิลไปเครื่องแม่แล้ว' : 'บันทึกคำขอไว้แล้ว จะซิงก์เมื่อออนไลน์', navigator.onLine ? 'success' : 'click');
+      showToast(navigator.onLine ? 'ส่งคำขอเช็คบิลไปเครื่องหลักแล้ว' : 'บันทึกคำขอไว้แล้ว จะซิงก์เมื่อออนไลน์', navigator.onLine ? 'success' : 'click');
       return;
     }
     if (!IS_CLIENT_NODE && unit.checkoutRequested && !canManageOrders()) {
@@ -1256,7 +1250,7 @@ function getUnitCardClass(unit) {
 
   function deleteOrderItem(index) {
     if (!canManageOrders()) {
-      showToast('เฉพาะเครื่องแม่ที่เข้าโหมดแอดมินเท่านั้นที่ลบออร์เดอร์ได้', 'error');
+      showToast('เฉพาะเครื่องหลักที่เข้าโหมดแอดมินเท่านั้นที่ลบออร์เดอร์ได้', 'error');
       return;
     }
     const unit = state.db.units.find((row) => row.id === Number(state.activeUnitId));
@@ -1289,7 +1283,7 @@ function getUnitCardClass(unit) {
 
   function confirmPayment(method) {
     if (IS_CLIENT_NODE) {
-      showToast('เครื่องลูกดูสถานะบิลได้อย่างเดียว ให้ปิดบิลที่เครื่องแม่', 'error');
+      showToast('อุปกรณ์เสริมดูสถานะบิลได้อย่างเดียว ให้ปิดบิลที่เครื่องหลัก', 'error');
       return;
     }
     const unit = state.db.units.find((row) => row.id === Number(state.activeUnitId));
@@ -1486,7 +1480,7 @@ function getUnitCardClass(unit) {
   }
 
   function clearSales() {
-    if (IS_CLIENT_NODE) return showToast('รีเซ็ตยอดขายได้เฉพาะเครื่องแม่', 'error');
+    if (IS_CLIENT_NODE) return showToast('รีเซ็ตยอดขายได้เฉพาะเครื่องหลัก', 'error');
     if (!canManageOrders()) return showToast('ต้องเข้าโหมดแอดมินก่อนรีเซ็ตยอดขาย', 'error');
     if (!confirm('ล้างประวัติยอดขายทั้งหมด?')) return;
     state.db.sales = [];
@@ -1914,8 +1908,6 @@ function getUnitCardClass(unit) {
       }
     }
 
-    // Pairing ใหม่ใช้ Firebase pair_requests / pair_sessions เป็นหลัก
-    // ไม่รับ CLIENT_ACCESS_REQUEST จาก event bus อีก เพื่อลด flow ซ้อนกับ pairing แบบใหม่
     if (msg.type === 'CLIENT_HEARTBEAT') handleClientHeartbeat(msg.client);
     if (msg.type === 'CLIENT_ACTION') handleClientAction(msg.action);
     if (msg.type === 'CLIENT_SYNC_CHECK_ACK') handleClientSyncAck(msg.payload);
@@ -2107,7 +2099,7 @@ function getUnitCardClass(unit) {
  
     const session = getStoredClientSession();
     if (session && Number(payload.syncVersion || 0) > Number(session.syncVersion || 0)) {
-      invalidateClientSession('เครื่องแม่เปลี่ยน PIN แล้ว กรุณาขออนุมัติใหม่');
+      invalidateClientSession('เครื่องหลักเปลี่ยน PIN แล้ว กรุณาขออนุมัติใหม่');
       return;
     }
  
@@ -2216,10 +2208,10 @@ function getUnitCardClass(unit) {
       localStorage.setItem(LS_PENDING_SYNC_VERSION, String(Number(payload.syncVersion || 1)));
       await clearClientOpQueue();
       flushClientOpQueue();
-      redirectToClientPage('เครื่องแม่อนุมัติแล้ว');
+      redirectToClientPage('เครื่องหลักอนุมัติแล้ว');
       return;
     }
-    await invalidateClientSession('เครื่องแม่ปฏิเสธคำขอ');
+    await invalidateClientSession('เครื่องหลักปฏิเสธคำขอ');
   }
 
   function startSyncPollingFallback() {
@@ -2248,7 +2240,7 @@ function getUnitCardClass(unit) {
     if (/client\.html$/i.test(window.location.pathname || '')) return;
     console.log('[FAKDU][SYNC] redirect to client page', { reason, path: window.location.pathname });
     if (reason) showToast(reason, 'success');
-    window.location.replace('client.html');
+    showToast('โหมดอุปกรณ์เสริมถูกปิดในรุ่น Offline-only', 'error');
   }
 
   async function persistClientSession(session = null) {
@@ -2657,7 +2649,7 @@ function getUnitCardClass(unit) {
     saveDb({ render: false, sync: false });
 
     if (!IS_CLIENT_NODE) openMasterApprovalModal();
-    showToast('มีคำขอเครื่องลูกใหม่', 'click');
+    showToast('มีคำขออุปกรณ์เสริมใหม่', 'click');
   }
 
   function handleClientAction(action) {
@@ -2806,7 +2798,7 @@ function getUnitCardClass(unit) {
     const total = state.db.sync.approvals.length;
     if (count) count.textContent = `${total} รายการ`;
     if (modalCount) modalCount.textContent = `${total} รายการ`;
-    const emptyHtml = '<div class="bg-gray-50 rounded-2xl border p-4 text-[11px] text-gray-400 font-bold">ยังไม่มีคำขอเข้าเครื่องลูก</div>';
+    const emptyHtml = '<div class="bg-gray-50 rounded-2xl border p-4 text-[11px] text-gray-400 font-bold">ยังไม่มีคำขอเข้าอุปกรณ์เสริม</div>';
     const contentHtml = state.db.sync.approvals.map((item) => `
       <div class="bg-white rounded-2xl border p-4 shadow-sm flex items-center gap-3">
         <div class="w-12 h-12 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center shrink-0">
@@ -2844,7 +2836,7 @@ function getUnitCardClass(unit) {
       return;
     }
     const item = pending[0];
-    const label = item.profileName || item.name || item.clientId || 'เครื่องลูก';
+    const label = item.profileName || item.name || item.clientId || 'อุปกรณ์เสริม';
     nameEl.textContent = label;
     metaEl.textContent = `PIN ${item.pin || '-'} • ${thaiDate(item.requestedAt || Date.now())}`;
     avatarEl.innerHTML = item.avatar
@@ -2889,7 +2881,7 @@ function getUnitCardClass(unit) {
 
   function approveClient(clientId) {
     if (!state.isPro && state.db.sync.clients.filter((row) => row.approved).length >= TRIAL_LIMITS.onlineClientMax) {
-      showToast(`รุ่นทดลองจำกัดเครื่องลูก ${TRIAL_LIMITS.onlineClientMax} เครื่อง`, 'error');
+      showToast(`รุ่นทดลองจำกัดอุปกรณ์เสริม ${TRIAL_LIMITS.onlineClientMax} เครื่อง`, 'error');
       return;
     }
 
@@ -2991,7 +2983,7 @@ function getUnitCardClass(unit) {
 
     renderOnlineClientsUi();
     saveDb({ render: false, sync: true });
-    showToast('อนุมัติเครื่องลูกแล้ว', 'success');
+    showToast('อนุมัติอุปกรณ์เสริมแล้ว', 'success');
   }
 
   function rejectClient(clientId) {
@@ -3094,7 +3086,7 @@ function getUnitCardClass(unit) {
     state.db.sync.lastCheck = {
       status: 'loading',
       text: 'กำลังตรวจความตรงกัน...',
-      hint: 'กำลังเช็คสถานะเครื่องลูกและรายการค้างส่ง',
+      hint: 'กำลังเช็คสถานะอุปกรณ์เสริมและรายการค้างส่ง',
       at: Date.now()
     };
     updateSyncCheckStatusUi();
@@ -3105,7 +3097,7 @@ function getUnitCardClass(unit) {
         state.db.sync.lastCheck = {
           status: 'error',
           text: 'ยังยืนยัน Sync จริงไม่ได้',
-          hint: 'ยังไม่มีเครื่องลูกออนไลน์ ให้เชื่อมต่อเครื่องลูกก่อนแล้วค่อยเช็คอีกครั้ง',
+          hint: 'ยังไม่มีอุปกรณ์เสริมออนไลน์ ให้เชื่อมต่ออุปกรณ์เสริมก่อนแล้วค่อยเช็คอีกครั้ง',
           at: Date.now()
         };
         setSyncButtonState('error');
@@ -3129,7 +3121,7 @@ function getUnitCardClass(unit) {
         state.db.sync.lastCheck = {
           status: 'error',
           text: 'พบข้อมูลยังไม่ตรงกัน',
-          hint: 'ให้ร้านตรวจสอบเครื่องลูกหรือรายการที่ยังค้างด้วยตนเอง',
+          hint: 'ให้ร้านตรวจสอบอุปกรณ์เสริมหรือรายการที่ยังค้างด้วยตนเอง',
           at: Date.now()
         };
         setSyncButtonState('error');
@@ -3253,7 +3245,7 @@ function getUnitCardClass(unit) {
     if (qs('manual-pin')) qs('manual-pin').value = pin;
 
     const api = resolveFirebaseSyncApi();
-    if (!api) return showToast('เชื่อม cloud ไม่ได้', 'error');
+    if (!api) return showToast('รุ่นนี้ปิดการเชื่อมต่อออนไลน์', 'error');
     const profile = getClientProfile();
     let resolvedShopId = '';
     let serverVersion = 0;
@@ -3294,16 +3286,16 @@ function getUnitCardClass(unit) {
       });
     } catch (error) {
       console.warn('PIN verification failed', error);
-      showToast('ตรวจสอบ PIN กับ cloud ไม่สำเร็จ', 'error');
+      showToast('รุ่นนี้ปิดการตรวจสอบออนไลน์', 'error');
       return;
     }
     if (allowDirectPairRequest) {
-      showToast('ไม่พบข้อมูล PIN บน cloud แต่ส่งคำขอหาเครื่องแม่แล้ว', 'click');
+      showToast('รุ่นนี้ปิด flow การจับคู่อุปกรณ์', 'error');
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
     localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
     localStorage.setItem(LS_PENDING_PAIR_REQUEST_ID, requestId);
-    showToast('ส่งคำขอแล้ว รอเครื่องแม่อนุมัติ', 'click');
+    showToast('ส่งคำขอแล้ว รอเครื่องหลักอนุมัติ', 'click');
     try {
       const approvedPayload = await new Promise((resolve, reject) => {
         let timeoutId = null;
@@ -3341,7 +3333,7 @@ function getUnitCardClass(unit) {
       redirectToClientPage();
     } catch (error) {
       if (error?.message === 'rejected') {
-        showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
+        showToast('เครื่องหลักปฏิเสธคำขอ', 'error');
       } else {
         showToast('ยังไม่อนุมัติ (หมดเวลารอ)', 'error');
       }
@@ -3364,7 +3356,7 @@ function getUnitCardClass(unit) {
       if (qs('client-avatar')) qs('client-avatar').src = data;
       if (isClientSessionValid()) broadcastClientHeartbeat();
       else broadcastClientAccessRequest();
-      showToast('อัปเดตรูปเครื่องลูกแล้ว', 'success');
+      showToast('อัปเดตรูปอุปกรณ์เสริมแล้ว', 'success');
     };
     reader.readAsDataURL(file);
   }
@@ -3484,7 +3476,7 @@ function getUnitCardClass(unit) {
       if (!IS_CLIENT_NODE && localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true') {
         const lastSession = getStoredClientSession();
         if (lastSession?.clientSessionToken) {
-          window.location.replace('client.html');
+          showToast('โหมดอุปกรณ์เสริมถูกปิดในรุ่น Offline-only', 'error');
           return;
         }
       }

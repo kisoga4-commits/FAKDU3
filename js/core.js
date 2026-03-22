@@ -1868,6 +1868,14 @@ function getUnitCardClass(unit) {
     openModal('modal-pro-unlock');
   }
 
+  function openProModal() {
+    if (state.isPro) {
+      showToast('ปลดล็อก Pro แล้ว', 'success');
+      return;
+    }
+    openModal('modal-pro-unlock');
+  }
+
   function applyTrialUiGuards() {
     if (state.isPro) return;
     if ((state.db.unitCount || 0) > TRIAL_LIMITS.unitMax) {
@@ -2509,18 +2517,6 @@ function getUnitCardClass(unit) {
     if (!pendingPin || !pendingRequestId) return;
     const profile = getClientProfile();
     try {
-      emitSyncMessage({
-        type: 'CLIENT_ACCESS_REQUEST',
-        client: {
-          clientId: profile.clientId,
-          profileName: profile.profileName,
-          avatar: profile.avatar,
-          pin: pendingPin,
-          shopId: pendingShopId,
-          syncVersion: getPendingSyncVersion(),
-          requestId: pendingRequestId
-        }
-      });
       const api = resolveFirebaseSyncApi();
       if (api) {
         api.writeJoinRequest(pendingPin, {
@@ -3647,6 +3643,7 @@ function getUnitCardClass(unit) {
     saveRecoveryData,
     executeRecovery,
     validateProKey,
+    openProModal,
     handleLockedFeatureClick,
     triggerSyncCheck,
     requestNewSyncKey,

@@ -677,8 +677,15 @@
     state.pendingAdminAction = { target, elementId: element?.id || null };
     const desc = qs('admin-pin-desc');
     if (desc) desc.textContent = target === 'manage' ? 'รหัสผ่านเพื่อเข้าหลังร้าน' : 'รหัสผ่านเพื่อเข้าระบบ';
-    if (qs('admin-pin-input')) qs('admin-pin-input').value = '';
+    const pinInput = qs('admin-pin-input');
+    if (pinInput) pinInput.value = '';
     openModal('modal-admin-pin');
+    if (pinInput) {
+      setTimeout(() => {
+        pinInput.focus();
+        pinInput.select();
+      }, 0);
+    }
   }
 
   function verifyAdminPin() {
@@ -3550,6 +3557,21 @@ function getUnitCardClass(unit) {
     } catch (_) {}
   });
   document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    if (event.key === 'Enter' && target.id === 'admin-pin-input') {
+      event.preventDefault();
+      verifyAdminPin();
+      return;
+    }
+
+    if (event.key === 'Enter' && target.id === 'manual-pin') {
+      event.preventDefault();
+      submitClientAccessRequest();
+    }
+  });
   //* events close
 
   //* expose open

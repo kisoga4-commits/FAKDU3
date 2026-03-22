@@ -117,7 +117,8 @@
     lastClientHeartbeatAt: 0,
     lastCloudSessionCheckAt: 0
   };
-  const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '');
+  const CLIENT_MODE_QUERY = new URLSearchParams(window.location.search || '').get('mode') === 'client';
+  const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '') || CLIENT_MODE_QUERY;
   //* constants close
 
   //* adapter open
@@ -3152,7 +3153,7 @@ function getUnitCardClass(unit) {
       await persistClientSession(sessionPayload);
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
-      window.location.href = 'client.html';
+      window.location.href = 'index.html?mode=client';
     } catch (error) {
       if (error?.message === 'rejected') {
         showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
@@ -3294,7 +3295,7 @@ function getUnitCardClass(unit) {
       if (!IS_CLIENT_NODE && localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true') {
         const lastSession = getStoredClientSession();
         if (lastSession?.clientSessionToken) {
-          window.location.replace('client.html');
+          window.location.replace('index.html?mode=client');
           return;
         }
       }

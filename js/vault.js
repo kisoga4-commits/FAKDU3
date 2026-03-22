@@ -1,20 +1,18 @@
 (() => {
   'use strict';
 
-  //* constants open
-  const APP_VERSION = '9.46';
+  const APP_VERSION = '10.10';
   const GENKEY_PREFIX = 'FKG1';
   const LICENSE_PREFIX = 'FKL1';
-  const VAULT_SECRET = 'FAKDU_VAULT_MASTER_SECRET_V946_CHANGE_ME';
+  const TOKEN_VERSION = 'v1';
+  const VAULT_SECRET = 'FAKDU_VAULT_MASTER_SECRET_V1010_CHANGE_ME';
 
   const LS_INSTALL_ID = 'FAKDU_VAULT_INSTALL_ID';
-  const LS_VAULT_STATE = 'FAKDU_VAULT_STATE_V946';
+  const LS_VAULT_STATE = 'FAKDU_VAULT_STATE_V1010';
   const LS_LAST_SHOP_ID = 'FAKDU_VAULT_LAST_SHOP_ID';
-  const LS_LAST_LICENSE = 'FAKDU_VAULT_LAST_LICENSE_V946';
-  const LS_LAST_STATUS = 'FAKDU_VAULT_LAST_STATUS_V946';
-  //* constants close
+  const LS_LAST_LICENSE = 'FAKDU_VAULT_LAST_LICENSE_V1010';
+  const LS_LAST_STATUS = 'FAKDU_VAULT_LAST_STATUS_V1010';
 
-  //* helpers open
   function now() {
     return Date.now();
   }
@@ -48,16 +46,22 @@
     return String(value || '')
       .trim()
       .toUpperCase()
-      .replace(/[^A-Z0-9_-]/g, '-');
+      .replace(/[^A-Z0-9_-]/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   function ensureDbShape(db) {
-    const target = db || {};
+    const target = db && typeof db === 'object' ? db : {};
+
     if (!target.recovery || typeof target.recovery !== 'object') {
       target.recovery = { phone: '', color: '', animal: '' };
     }
+
     if (typeof target.licenseToken !== 'string') target.licenseToken = '';
     if (typeof target.licenseActive !== 'boolean') target.licenseActive = false;
+    if (typeof target.shopId !== 'string') target.shopId = '';
+
     if (!target.vault || typeof target.vault !== 'object') {
       target.vault = {
         installRef: '',
@@ -67,9 +71,11 @@
         status: 'idle',
         note: '',
         licenseId: '',
-        keyRef: ''
+        keyRef: '',
+        plan: 'basic'
       };
     }
+
     return target;
   }
 
@@ -82,6 +88,7 @@
       screen.width || 0,
       screen.height || 0,
       screen.colorDepth || 0,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
       new Date().getTimezoneOffset()
     ];
     return parts.join('|');
@@ -100,7 +107,7 @@
   }
 
   function toBase64Url(input) {
-    const bytes = new TextEncoder().encode(input);
+    const bytes = new TextEncoder().encode(String(input || ''));
     let binary = '';
     bytes.forEach((byte) => {
       binary += String.fromCharCode(byte);
@@ -109,17 +116,17 @@
   }
 
   function fromBase64Url(input) {
-    const base64 = String(input || '')
+    const normalized = String(input || '')
       .replace(/-/g, '+')
       .replace(/_/g, '/')
       .padEnd(Math.ceil(String(input || '').length / 4) * 4, '=');
-    const binary = atob(base64);
+    const binary = atob(normalized);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new TextDecoder().decode(bytes);
   }
 
   async function signToken(prefix, encodedPayload) {
-    return sha256Hex(`${VAULT_SECRET}|${APP_VERSION}|${prefix}|${encodedPayload}`);
+    return sha256Hex(`${VAULT_SECRET}|${APP_VERSION}|${TOKEN_VERSION}|${prefix}|${encodedPayload}`);
   }
 
   async function createToken(prefix, payload) {
@@ -160,7 +167,8 @@
       status: 'idle',
       note: '',
       licenseId: '',
-      keyRef: ''
+      keyRef: '',
+      plan: 'basic'
     });
   }
 
@@ -208,51 +216,83 @@
   async function ensureShopId(db) {
     ensureDbShape(db);
     let sid = normalizeShopId(db?.shopId || localStorage.getItem(LS_LAST_SHOP_ID) || '');
-    if (!sid) {
-      sid = `SHOP-${randomString(8)}`;
-    }
+    if (!sid) sid = `SHOP-${randomString(8)}`;
     if (db) db.shopId = sid;
     localStorage.setItem(LS_LAST_SHOP_ID, sid);
     return sid;
   }
-  //* helpers close
 
-  //* license open
-  async function issueLocalLicenseFromGenKey({ genPayload, shopId, installId }) {
-    const binding = await buildBindingRefs(shopId, installId);
-    const issuedAt = Number(genPayload.issuedAt || now());
-    const activatedAt = now();
-    const features = Array.isArray(genPayload.features) && genPayload.features.length
-      ? genPayload.features
-      : ['pro'];
-
-    const licensePayload = {
-      type: 'LICENSE',
-      version: 1,
+  async function getActivationRequest({ shopId = '', deviceId = '', db = {} } = {}) {
+    ensureDbShape(db);
+    const sid = await ensureShopId({ ...db, shopId });
+    const refs = await buildBindingRefs(sid, deviceId);
+    const request = {
+      kind: 'activation_request',
       appVersion: APP_VERSION,
-      shopId: binding.shopId,
-      plan: genPayload.plan || 'PRO',
-      features,
-      issuedAt,
-      activatedAt,
-      licenseId: genPayload.licenseId || makeId('LIC', 10),
-      sourceKeyRef: await shortHash(JSON.stringify(genPayload), 16),
-      machine: {
-        installRef: binding.installRef,
-        softRef: binding.softRef
-      }
+      shopId: sid,
+      installId: refs.installId,
+      installRef: refs.installRef,
+      softRef: refs.softRef,
+      requestedAt: now()
     };
-
-    const token = await createToken(LICENSE_PREFIX, licensePayload);
     return {
-      token,
-      payload: licensePayload,
-      binding
+      ok: true,
+      request,
+      printable: JSON.stringify(request, null, 2)
     };
   }
 
-  async function validateGenKeyForShop(key, shopId) {
+  async function createGenKey({ shopId = '', installRef = '', softRef = '', issuedBy = 'owner', plan = 'pro', expiresAt = null } = {}) {
+    const sid = normalizeShopId(shopId);
+    if (!sid) {
+      return { ok: false, message: 'ยังไม่มีรหัสร้าน' };
+    }
+
+    const payload = {
+      type: 'genkey',
+      version: TOKEN_VERSION,
+      shopId: sid,
+      installRef: String(installRef || ''),
+      softRef: String(softRef || ''),
+      issuedBy: String(issuedBy || 'owner'),
+      issuedAt: now(),
+      expiresAt: expiresAt || null,
+      plan: String(plan || 'pro'),
+      keyRef: `KG-${randomString(10)}`
+    };
+
+    const token = await createToken(GENKEY_PREFIX, payload);
+    return { ok: true, token, payload };
+  }
+
+  async function createLicenseToken({ shopId = '', installRef = '', softRef = '', plan = 'pro', licenseId = '', note = '' } = {}) {
+    const sid = normalizeShopId(shopId);
+    if (!sid) {
+      return { ok: false, message: 'ยังไม่มีรหัสร้าน' };
+    }
+
+    const payload = {
+      type: 'license',
+      version: TOKEN_VERSION,
+      shopId: sid,
+      installRef: String(installRef || ''),
+      softRef: String(softRef || ''),
+      issuedAt: now(),
+      plan: String(plan || 'pro'),
+      licenseId: String(licenseId || `LIC-${randomString(10)}`),
+      note: String(note || '')
+    };
+
+    const token = await createToken(LICENSE_PREFIX, payload);
+    return { ok: true, token, payload };
+  }
+
+  async function validateProKey({ key = '', shopId = '', deviceId = '', db = {} } = {}) {
+    ensureDbShape(db);
+    const sid = await ensureShopId({ ...db, shopId });
+    const refs = await buildBindingRefs(sid, deviceId);
     const tokenInfo = await readToken(key);
+
     if (!tokenInfo.ok) {
       return { valid: false, message: tokenInfo.message || 'คีย์ไม่ถูกต้อง' };
     }
@@ -262,25 +302,41 @@
     }
 
     const payload = tokenInfo.payload || {};
-    if ((payload.type || 'GENKEY') !== 'GENKEY') {
+    if (payload.type !== 'genkey') {
       return { valid: false, message: 'ชนิดคีย์ไม่ถูกต้อง' };
     }
 
-    const tokenShopId = normalizeShopId(payload.shopId);
-    const currentShopId = normalizeShopId(shopId);
-    if (!tokenShopId || tokenShopId !== currentShopId) {
+    if (normalizeShopId(payload.shopId) !== sid) {
       return { valid: false, message: 'คีย์นี้ไม่ตรงกับรหัสร้าน' };
+    }
+
+    if (payload.installRef && payload.installRef !== refs.installRef) {
+      return { valid: false, message: 'คีย์นี้ไม่ตรงกับเครื่องนี้' };
+    }
+
+    if (payload.softRef && payload.softRef !== refs.softRef) {
+      return { valid: false, message: 'ลายนิ้วมือเครื่องไม่ตรง' };
+    }
+
+    if (payload.expiresAt && Number(payload.expiresAt) < now()) {
+      return { valid: false, message: 'คีย์นี้หมดอายุแล้ว' };
     }
 
     return {
       valid: true,
-      payload,
-      message: 'GENKEY ใช้ได้'
+      message: 'คีย์ถูกต้อง',
+      shopId: sid,
+      refs,
+      payload
     };
   }
 
-  async function validateLocalLicenseToken(token, shopId, installId = '') {
+  async function validateLicenseToken({ token = '', shopId = '', deviceId = '', db = {} } = {}) {
+    ensureDbShape(db);
+    const sid = await ensureShopId({ ...db, shopId });
+    const refs = await buildBindingRefs(sid, deviceId);
     const tokenInfo = await readToken(token);
+
     if (!tokenInfo.ok) {
       return { valid: false, message: tokenInfo.message || 'โทเคนไม่ถูกต้อง' };
     }
@@ -290,121 +346,101 @@
     }
 
     const payload = tokenInfo.payload || {};
-    if ((payload.type || '') !== 'LICENSE') {
+    if (payload.type !== 'license') {
       return { valid: false, message: 'ชนิดโทเคนไม่ถูกต้อง' };
     }
 
-    const currentShopId = normalizeShopId(shopId);
-    const tokenShopId = normalizeShopId(payload.shopId);
-    if (!tokenShopId || tokenShopId !== currentShopId) {
+    if (normalizeShopId(payload.shopId) !== sid) {
       return { valid: false, message: 'license นี้ไม่ตรงร้าน' };
     }
 
-    const binding = await buildBindingRefs(currentShopId, installId);
-    const exactMatch = payload.machine?.installRef === binding.installRef;
-    const softMatch = payload.machine?.softRef === binding.softRef;
-
-    if (!exactMatch && !softMatch) {
+    if (payload.installRef && payload.installRef !== refs.installRef) {
       return { valid: false, message: 'license นี้ไม่ตรงกับเครื่องนี้' };
     }
 
+    if (payload.softRef && payload.softRef !== refs.softRef) {
+      return { valid: false, message: 'ลายนิ้วมือเครื่องนี้ไม่ตรง license' };
+    }
+
     return {
       valid: true,
-      exactMatch,
-      softMatch,
-      payload,
-      binding,
-      message: exactMatch ? 'license ตรงกับเครื่องเดิม' : 'license ตรงกับอุปกรณ์เดิมและกู้คืนได้'
+      message: 'license ใช้งานได้',
+      shopId: sid,
+      refs,
+      payload
     };
   }
-  //* license close
 
-  //* public api open
-  async function activateProKey({ key, shopId, deviceId = '', db = null } = {}) {
+  async function activateProKey({ key = '', shopId = '', deviceId = '', db = {} } = {}) {
     ensureDbShape(db);
+    const sid = await ensureShopId({ ...db, shopId });
+    const validation = await validateProKey({ key, shopId: sid, deviceId, db });
 
-    const sid = normalizeShopId(shopId || db?.shopId || '');
-    if (!sid) {
-      return { valid: false, message: 'ยังไม่มีรหัสร้าน' };
+    if (!validation.valid) {
+      db.licenseActive = false;
+      if (db.vault) {
+        db.vault.status = 'invalid';
+        db.vault.note = validation.message || 'เปิดสิทธิ์ไม่สำเร็จ';
+      }
+      setVaultState({ status: 'invalid', note: validation.message || 'เปิดสิทธิ์ไม่สำเร็จ', shopId: sid });
+      return validation;
     }
 
-    const checked = await validateGenKeyForShop(key, sid);
-    if (!checked.valid) {
-      return checked;
-    }
-
-    const localLicense = await issueLocalLicenseFromGenKey({
-      genPayload: checked.payload,
+    const refs = validation.refs;
+    const genPayload = validation.payload;
+    const issued = await createLicenseToken({
       shopId: sid,
-      installId: deviceId
+      installRef: refs.installRef,
+      softRef: refs.softRef,
+      plan: genPayload.plan || 'pro',
+      licenseId: `LIC-${randomString(12)}`,
+      note: `Activated by ${genPayload.keyRef || 'genkey'}`
     });
 
-    const licenseToken = localLicense.token;
-    const keyRef = await shortHash(String(key || '').trim(), 16);
-
-    if (db) {
-      db.shopId = sid;
-      db.licenseToken = licenseToken;
-      db.licenseActive = true;
-      db.vault = {
-        ...(db.vault || {}),
-        installRef: localLicense.binding.installRef,
-        softRef: localLicense.binding.softRef,
-        activatedAt: localLicense.payload.activatedAt,
-        lastValidatedAt: now(),
-        status: 'active',
-        note: localLicense.binding.installRef === localLicense.binding.installRef ? 'เปิดสิทธิ์แล้ว' : '',
-        licenseId: localLicense.payload.licenseId,
-        keyRef
-      };
+    if (!issued.ok) {
+      return { valid: false, message: issued.message || 'สร้าง license ไม่สำเร็จ' };
     }
 
-    setVaultState({
-      installId: localLicense.binding.installId,
-      installRef: localLicense.binding.installRef,
-      softRef: localLicense.binding.softRef,
-      shopId: sid,
-      activatedAt: localLicense.payload.activatedAt,
+    db.licenseToken = issued.token;
+    db.licenseActive = true;
+    db.shopId = sid;
+    db.vault = {
+      ...(db.vault || {}),
+      installRef: refs.installRef,
+      softRef: refs.softRef,
+      activatedAt: now(),
       lastValidatedAt: now(),
       status: 'active',
       note: 'เปิดสิทธิ์สำเร็จ',
-      licenseId: localLicense.payload.licenseId,
-      keyRef
-    });
+      licenseId: issued.payload.licenseId,
+      keyRef: genPayload.keyRef || '',
+      plan: genPayload.plan || 'pro'
+    };
 
-    localStorage.setItem(LS_LAST_LICENSE, licenseToken);
+    localStorage.setItem(LS_LAST_LICENSE, issued.token);
+    localStorage.setItem(LS_LAST_STATUS, 'active');
+    setVaultState({
+      installId: refs.installId,
+      installRef: refs.installRef,
+      softRef: refs.softRef,
+      shopId: sid,
+      activatedAt: db.vault.activatedAt,
+      lastValidatedAt: db.vault.lastValidatedAt,
+      status: 'active',
+      note: 'เปิดสิทธิ์สำเร็จ',
+      licenseId: issued.payload.licenseId,
+      keyRef: genPayload.keyRef || '',
+      plan: genPayload.plan || 'pro'
+    });
 
     return {
       valid: true,
-      token: licenseToken,
       message: 'เปิดสิทธิ์ PRO สำเร็จ',
-      shopId: sid,
-      plan: localLicense.payload.plan,
-      licenseId: localLicense.payload.licenseId,
-      exact: true
+      token: issued.token,
+      payload: issued.payload,
+      refs,
+      shopId: sid
     };
-  }
-
-  async function validateProKey(key, shopId, deviceId = '') {
-    const sid = normalizeShopId(shopId);
-    if (!sid) {
-      return { valid: false, message: 'ยังไม่มีรหัสร้าน' };
-    }
-
-    const tokenInfo = await readToken(key);
-    if (!tokenInfo.ok) {
-      return { valid: false, message: tokenInfo.message || 'คีย์ไม่ถูกต้อง' };
-    }
-
-    if (tokenInfo.prefix === GENKEY_PREFIX) {
-      return validateGenKeyForShop(key, sid);
-    }
-
-    if (tokenInfo.prefix === LICENSE_PREFIX) {
-      return validateLocalLicenseToken(key, sid, deviceId);
-    }
-
-    return { valid: false, message: 'คีย์นี้ไม่รองรับ' };
   }
 
   async function isProActive(db = {}) {
@@ -413,106 +449,130 @@
     const token = String(db.licenseToken || localStorage.getItem(LS_LAST_LICENSE) || '').trim();
     if (!token) {
       db.licenseActive = false;
-      db.vault.status = 'missing';
-      db.vault.note = 'ยังไม่มี license';
-      setVaultState({ shopId: sid, status: 'missing', note: 'ยังไม่มี license' });
+      if (db.vault) {
+        db.vault.status = 'idle';
+        db.vault.note = 'ยังไม่มี license';
+      }
+      setVaultState({ shopId: sid, status: 'idle', note: 'ยังไม่มี license' });
       return false;
     }
 
-    const result = await validateLocalLicenseToken(token, sid);
-    if (!result.valid) {
+    const validation = await validateLicenseToken({ token, shopId: sid, db });
+    if (!validation.valid) {
       db.licenseActive = false;
-      db.vault.status = 'invalid';
-      db.vault.note = result.message || 'license ไม่ผ่าน';
-      db.vault.lastValidatedAt = now();
-      setVaultState({ shopId: sid, status: 'invalid', note: db.vault.note, lastValidatedAt: now() });
+      if (db.vault) {
+        db.vault.status = 'invalid';
+        db.vault.note = validation.message || 'license ใช้งานไม่ได้';
+      }
+      setVaultState({ shopId: sid, status: 'invalid', note: validation.message || 'license ใช้งานไม่ได้' });
       return false;
     }
 
     db.licenseToken = token;
     db.licenseActive = true;
-    db.vault.installRef = result.binding.installRef;
-    db.vault.softRef = result.binding.softRef;
-    db.vault.lastValidatedAt = now();
-    db.vault.status = result.exactMatch ? 'active' : 'restored';
-    db.vault.note = result.exactMatch ? 'สิทธิ์ตรงกับเครื่องเดิม' : 'กู้สิทธิ์กลับมาบนอุปกรณ์เดิม';
-    db.vault.licenseId = result.payload.licenseId || db.vault.licenseId || '';
-    localStorage.setItem(LS_LAST_LICENSE, token);
-
-    setVaultState({
-      installId: result.binding.installId,
-      installRef: result.binding.installRef,
-      softRef: result.binding.softRef,
-      shopId: sid,
-      activatedAt: db.vault.activatedAt || result.payload.activatedAt || null,
+    db.shopId = sid;
+    db.vault = {
+      ...(db.vault || {}),
+      installRef: validation.refs.installRef,
+      softRef: validation.refs.softRef,
       lastValidatedAt: now(),
-      status: db.vault.status,
-      note: db.vault.note,
-      licenseId: result.payload.licenseId || ''
+      status: 'active',
+      note: 'สิทธิ์ใช้งานปกติ',
+      licenseId: validation.payload.licenseId || (db.vault && db.vault.licenseId) || '',
+      plan: validation.payload.plan || (db.vault && db.vault.plan) || 'pro'
+    };
+
+    localStorage.setItem(LS_LAST_LICENSE, token);
+    localStorage.setItem(LS_LAST_STATUS, 'active');
+    setVaultState({
+      installId: validation.refs.installId,
+      installRef: validation.refs.installRef,
+      softRef: validation.refs.softRef,
+      shopId: sid,
+      lastValidatedAt: db.vault.lastValidatedAt,
+      status: 'active',
+      note: 'สิทธิ์ใช้งานปกติ',
+      licenseId: db.vault.licenseId || '',
+      plan: db.vault.plan || 'pro'
     });
 
     return true;
-  }
-
-  async function getActivationRequest(db = {}, deviceId = '') {
-    ensureDbShape(db);
-    const sid = await ensureShopId(db);
-    const binding = await buildBindingRefs(sid, deviceId);
-    return {
-      appVersion: APP_VERSION,
-      shopId: sid,
-      installId: binding.installId,
-      installRef: binding.installRef,
-      softRef: binding.softRef,
-      requestedAt: now()
-    };
   }
 
   async function clearLicense(db = {}) {
     ensureDbShape(db);
     db.licenseToken = '';
     db.licenseActive = false;
-    db.vault.status = 'cleared';
-    db.vault.note = 'ล้าง license แล้ว';
-    db.vault.lastValidatedAt = now();
+    db.vault = {
+      ...(db.vault || {}),
+      activatedAt: null,
+      lastValidatedAt: null,
+      status: 'idle',
+      note: 'ล้างสิทธิ์เรียบร้อย',
+      licenseId: '',
+      keyRef: '',
+      plan: 'basic'
+    };
+
     localStorage.removeItem(LS_LAST_LICENSE);
-    setVaultState({ shopId: normalizeShopId(db.shopId || ''), status: 'cleared', note: 'ล้าง license แล้ว', lastValidatedAt: now() });
-    return true;
+    localStorage.setItem(LS_LAST_STATUS, 'idle');
+    setVaultState({
+      activatedAt: null,
+      lastValidatedAt: null,
+      status: 'idle',
+      note: 'ล้างสิทธิ์เรียบร้อย',
+      licenseId: '',
+      keyRef: '',
+      plan: 'basic'
+    });
+
+    return { ok: true, message: 'ล้างสิทธิ์สำเร็จ' };
   }
 
-  function verifyRecoveryAnswers(db = {}, answers = {}) {
+  async function verifyRecoveryAnswers({ phone = '', color = '', animal = '', db = {} } = {}) {
     ensureDbShape(db);
-    const colorOk = String(db.recovery?.color || '').trim() === String(answers.color || '').trim();
-    const animalOk = String(db.recovery?.animal || '').trim() === String(answers.animal || '').trim();
+    const source = db.recovery || {};
+    const checks = [
+      ['phone', phone],
+      ['color', color],
+      ['animal', animal]
+    ];
+
+    const ok = checks.every(([key, value]) => {
+      const left = String(source[key] || '').trim().toLowerCase();
+      const right = String(value || '').trim().toLowerCase();
+      return left && right && left === right;
+    });
+
     return {
-      ok: Boolean(colorOk && animalOk),
-      colorOk,
-      animalOk
+      ok,
+      message: ok ? 'คำตอบกู้คืนถูกต้อง' : 'คำตอบกู้คืนไม่ถูกต้อง'
     };
   }
 
   async function exportVaultBackup(db = {}) {
     ensureDbShape(db);
-    const sid = await ensureShopId(db);
-    const state = getVaultState();
-    return JSON.stringify({
+    const payload = {
       exportedAt: now(),
       appVersion: APP_VERSION,
-      shopId: sid,
-      licenseToken: db.licenseToken || '',
+      shopId: await ensureShopId(db),
+      licenseToken: String(db.licenseToken || ''),
       licenseActive: Boolean(db.licenseActive),
       vault: clone(db.vault || {}),
-      recovery: {
-        color: db.recovery?.color || '',
-        animal: db.recovery?.animal || ''
-      },
-      localVaultState: state
-    }, null, 2);
+      recovery: clone(db.recovery || {}),
+      localVaultState: getVaultState()
+    };
+
+    return {
+      ok: true,
+      filename: `fakdu-vault-backup-${payload.shopId}-${new Date().toISOString().slice(0, 10)}.json`,
+      data: JSON.stringify(payload, null, 2)
+    };
   }
 
-  async function importVaultBackup(raw, db = {}) {
+  async function importVaultBackup(rawText, db = {}) {
     ensureDbShape(db);
-    const parsed = typeof raw === 'string' ? safeJsonParse(raw, null) : raw;
+    const parsed = typeof rawText === 'string' ? safeJsonParse(rawText, null) : rawText;
     if (!parsed || typeof parsed !== 'object') {
       return { ok: false, message: 'ไฟล์สำรอง VAULT ไม่ถูกต้อง' };
     }
@@ -551,9 +611,7 @@
       local: state
     };
   }
-  //* public api close
 
-  //* expose open
   window.FakduVault = {
     APP_VERSION,
     GENKEY_PREFIX,
@@ -561,8 +619,11 @@
     ensureShopId,
     getInstallId,
     getActivationRequest,
+    createGenKey,
     validateProKey,
     activateProKey,
+    validateLicenseToken,
+    createLicenseToken,
     isProActive,
     clearLicense,
     verifyRecoveryAnswers,
@@ -570,5 +631,4 @@
     importVaultBackup,
     getStatus
   };
-  //* expose close
 })();

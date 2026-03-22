@@ -1116,15 +1116,11 @@
     }
     queue.innerHTML = queueRows.map((unit) => {
       const statusMeta = getUnitStatusMeta(unit);
+      const cart = state.db.carts[unit.id] || [];
+      const hasDraft = cart.length > 0;
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
-
-      const checkoutActionLabel = IS_CLIENT_NODE ? 'ดูสถานะ' : 'เปิดบิล';
-      const checkoutAction = `openCheckout(${unit.id})`;
       const waitStart = unit.checkoutRequestedAt || unit.lastActivityAt || unit.startTime;
       const waitText = waitStart ? `รอเช็คบิล ${formatDurationFrom(waitStart)}` : 'รอเช็คบิล';
-      const thumbRows = unit.orders;
-
-      const draftTotal = cart.reduce((sum, row) => sum + row.total, 0);
       const checkoutActionLabel = hasDraft
         ? 'ไปส่งออร์เดอร์'
         : IS_CLIENT_NODE
@@ -1137,6 +1133,7 @@
           ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
           : '';
       const thumbRows = hasDraft ? cart : unit.orders;
+      const orderSummary = thumbRows.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ');
 
       return `
         <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border-2 shadow-sm relative ${getUnitCardClass(unit)}">
@@ -1152,13 +1149,12 @@
             </div>
           </div>
 
-          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
-
-          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${hasDraft ? cart.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ') : unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
+          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${orderSummary}</div>
 
           ${renderUnitItemThumbnails(thumbRows)}
           <div class="flex gap-2">
             <button onclick="${checkoutAction}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${checkoutActionLabel}</button>
+            ${checkoutRequestBtn}
           </div>
         </div>
       `;
@@ -1444,11 +1440,6 @@
       currentTotal,
       previousTotal,
       percent,
-
-    return {
-      currentTotal,
-      previousTotal,
-
       currentLabel,
       previousLabel,
       title,
@@ -1470,12 +1461,8 @@
     const diff = data.currentTotal - data.previousTotal;
     const isUp = diff >= 0;
     if (chip) {
-
       const percentText = `${isUp ? '+' : '-'}${Math.abs(data.percent).toFixed(1)}%`;
-      chip.textContent = `${percentText}`;
-
-      chip.textContent = `${isUp ? '▲' : '▼'} ${formatMoney(Math.abs(diff))}`;
-
+      chip.textContent = percentText;
       chip.className = `text-xs font-black px-3 py-1.5 rounded-full ${isUp ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`;
     }
     const max = Math.max(data.currentTotal, data.previousTotal, 1);

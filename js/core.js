@@ -794,7 +794,6 @@
         : unit.orders.length > 0
           ? `ยอดรวม ฿${formatMoney(total)}`
           : '-';
-      const timeText = unit.startTime ? formatDurationFrom(unit.startTime) : '-';
       const thumbRows = cart.length > 0 ? cart : unit.orders;
       return `
         <button onclick="openTable(${unit.id})" class="unit-status-ring ${statusMeta.cls} text-left p-4 rounded-[26px] border-2 shadow-sm transition active:scale-[0.98] ${getUnitCardClass(unit)}">
@@ -810,8 +809,7 @@
           </div>
           <div class="text-[12px] font-black text-gray-700 mb-1">${secondary}</div>
           ${renderUnitItemThumbnails(thumbRows)}
-          <div class="flex justify-between items-center text-[10px] text-gray-500 font-bold">
-            <span class="admin-timer" data-start="${unit.startTime || ''}">${timeText}</span>
+          <div class="flex justify-end items-center text-[10px] text-gray-500 font-bold">
             <span>${unit.orders.length > 0 ? `${unit.orders.reduce((s, o) => s + o.qty, 0)} รายการ` : `${cart.length} ตะกร้า`}</span>
           </div>
         </button>
@@ -826,9 +824,7 @@
     const unit = state.db.units.find((item) => item.id === Number(id));
     if (!unit) return;
     const title = qs('active-unit-id');
-    const time = qs('active-unit-time');
     if (title) title.textContent = id;
-    if (time) time.textContent = unit.startTime ? `ใช้งานมาแล้ว ${formatDurationFrom(unit.startTime)}` : 'ยังไม่เริ่มจับเวลา';
     renderOrderedItemsBar(unit);
     renderItemList();
     updateCartTotal();
@@ -1054,7 +1050,7 @@
       updateCartTotal();
       saveDb({ render: true, sync: false });
       showToast(navigator.onLine ? 'ส่งออร์เดอร์ไปเครื่องหลักแล้ว' : 'บันทึกคิวไว้แล้ว จะซิงก์เมื่อออนไลน์', navigator.onLine ? 'success' : 'click');
-      switchTab('customer', qs('tab-customer'));
+      switchTab('shop', qs('tab-shop'));
       return;
     }
     if (!unit.startTime) unit.startTime = Date.now();
@@ -1089,7 +1085,7 @@
     updateCartTotal();
     saveDb({ render: true, sync: true });
     showToast('ส่งออร์เดอร์แล้ว', 'success');
-    switchTab('customer', qs('tab-customer'));
+    switchTab('shop', qs('tab-shop'));
   }
   //* order close
 
@@ -1437,6 +1433,9 @@
       ? ((currentTotal - previousTotal) / previousTotal) * 100
       : (currentTotal > 0 ? 100 : 0);
     return {
+      mode,
+      currentStartStr,
+      currentEndStr,
       currentTotal,
       previousTotal,
       percent,
@@ -1445,6 +1444,62 @@
       title,
       rangeText: `${formatDisplayDate(previousStart)} - ${formatDisplayDate(currentEnd)}`
     };
+  }
+
+  function getTopItemsByDateRange(start, end, limit = 5) {
+    const counts = {};
+    state.db.sales
+      .filter((sale) => sale.date >= start && sale.date <= end)
+      .forEach((sale) => {
+        (sale.items || []).forEach((row) => {
+          const base = row.baseName || (row.name || '').split(' (')[0] || 'ไม่ระบุ';
+          counts[base] = (counts[base] || 0) + Number(row.qty || 0);
+        });
+      });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit);
+  }
+
+  function renderSalesCompareChart(data, targetId) {
+    const chart = qs(targetId);
+    if (!chart) return;
+    const max = Math.max(data.currentTotal, data.previousTotal, 1);
+    const currentPct = Math.max(8, Math.round((data.currentTotal / max) * 100));
+    const previousPct = Math.max(8, Math.round((data.previousTotal / max) * 100));
+    chart.innerHTML = `
+      <div class="sales-compare-col">
+        <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
+        <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
+        <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
+      </div>
+      <div class="sales-compare-col">
+        <div class="text-[11px] font-bold text-gray-500">${data.previousLabel}</div>
+        <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
+        <div class="sales-compare-bar-wrap"><div class="sales-compare-bar previous" style="height:${previousPct}%"></div></div>
+      </div>
+    `;
+  }
+
+  function openSalesInsight(mode = 'today') {
+    const data = getSalesCompareData(mode);
+    const isUp = (data.currentTotal - data.previousTotal) >= 0;
+    if (qs('sales-insight-title')) qs('sales-insight-title').textContent = `📈 ${data.title}`;
+    if (qs('sales-insight-range')) qs('sales-insight-range').textContent = `ช่วง: ${data.rangeText}`;
+    if (qs('sales-insight-change')) {
+      const chip = qs('sales-insight-change');
+      chip.textContent = `${isUp ? '+' : '-'}${Math.abs(data.percent).toFixed(1)}%`;
+      chip.className = `inline-flex text-xs font-black px-3 py-1.5 rounded-full mb-4 ${isUp ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`;
+    }
+    renderSalesCompareChart(data, 'sales-insight-chart');
+    const topBox = qs('sales-insight-top-items');
+    if (topBox) {
+      const topItems = getTopItemsByDateRange(data.currentStartStr, data.currentEndStr, 5);
+      topBox.innerHTML = topItems.length
+        ? topItems.map(([name, qty], idx) => `<div class="flex items-center justify-between bg-white rounded-xl p-2 border"><span class="font-black text-gray-700">${idx + 1}. ${escapeHtml(name)}</span><span class="font-black text-gray-500">x${qty}</span></div>`).join('')
+        : '<div class="text-[11px] text-gray-400 font-bold">ยังไม่มียอดขาย</div>';
+    }
+    openModal('modal-sales-insight');
   }
 
   function renderSalesCompare() {
@@ -1465,35 +1520,7 @@
       chip.textContent = percentText;
       chip.className = `text-xs font-black px-3 py-1.5 rounded-full ${isUp ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`;
     }
-    const max = Math.max(data.currentTotal, data.previousTotal, 1);
-    const currentPct = Math.max(8, Math.round((data.currentTotal / max) * 100));
-    const previousPct = Math.max(8, Math.round((data.previousTotal / max) * 100));
-    if (chart) {
-      chart.innerHTML = `
-        <div class="sales-compare-col">
-
-          <div class="text-[11px] font-bold text-gray-500">ล่าสุด • ${data.currentLabel}</div>
-          <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
-          <div class="sales-compare-percent ${isUp ? 'up' : 'down'}">${isUp ? '+' : '-'}${Math.abs(data.percent).toFixed(1)}%</div>
-          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
-        </div>
-        <div class="sales-compare-col">
-          <div class="text-[11px] font-bold text-gray-500">เปรียบเทียบ • ${data.previousLabel}</div>
-          <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
-          <div class="sales-compare-percent flat">ฐานเปรียบเทียบ</div>
-
-          <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
-          <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
-          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
-        </div>
-        <div class="sales-compare-col">
-          <div class="text-[11px] font-bold text-gray-500">${data.previousLabel}</div>
-          <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
-
-          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar previous" style="height:${previousPct}%"></div></div>
-        </div>
-      `;
-    }
+    if (chart) renderSalesCompareChart(data, 'sales-compare-chart');
   }
 
   function selectSalesCompareMode(mode, element) {
@@ -1509,6 +1536,7 @@
     document.querySelectorAll('.sales-summary-card').forEach((card) => card.classList.remove('is-active'));
     element?.classList?.add('is-active');
     renderSalesCompare();
+    openSalesInsight(mode);
   }
 
   function getSearchDateRange() {
@@ -3568,9 +3596,6 @@
         if (start) el.textContent = formatDurationFrom(start);
       });
       const active = state.db.units.find((unit) => unit.id === Number(state.activeUnitId));
-      if (state.activeTab === 'order' && active && qs('active-unit-time')) {
-        qs('active-unit-time').textContent = active.startTime ? `ใช้งานมาแล้ว ${formatDurationFrom(active.startTime)}` : 'ยังไม่เริ่มจับเวลา';
-      }
       if (!qs('modal-checkout')?.classList.contains('hidden') && active && qs('checkout-live-time')) {
         qs('checkout-live-time').textContent = `เวลาใช้งาน: ${formatDurationFrom(active.startTime)}`;
       }

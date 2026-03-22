@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#800000">
-    <title>FAKDU v9.46 - Master Node</title>
+    <title>FAKDU v9.47 - Pairing Refactor</title>
 
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icon.png">
@@ -56,7 +56,7 @@
             <div class="flex items-center gap-2">
                 <button onclick="openClientEntryModal()" class="w-12 h-12 rounded-[18px] text-gray-700 shadow-md text-xl active:scale-95" title="เข้าโหมดเครื่องลูก">📱</button>
             </div>
-            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU v9.46</div>
+            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU v9.47</div>
         </div>
     </header>
     <!--** header close -->
@@ -239,8 +239,8 @@
         <div class="bg-white p-6 rounded-[28px] border shadow-sm mb-6">
             <div class="flex items-start justify-between gap-4 mb-5">
                 <div>
-                    <h3 class="font-black text-slate-800 text-base mb-1">☁️ ตรวจข้อมูลเครื่องลูก</h3>
-                    <p class="text-[11px] text-gray-500 font-bold">Auto sync ตอน online และกดปุ่มนี้เพื่อตรวจว่าข้อมูลตรงกันจริงไหม</p>
+                    <h3 class="font-black text-slate-800 text-base mb-1">☁️ เชื่อมต่อเครื่องลูก / ตรวจข้อมูล</h3>
+                    <p class="text-[11px] text-gray-500 font-bold">PIN/QR ใช้สำหรับจับคู่เครื่องลูก ส่วนปุ่มเช็ค Sync ใช้หลังจับคู่แล้ว</p>
                 </div>
                 <div id="master-online-chip" class="px-3 py-1.5 rounded-full text-[10px] font-black bg-gray-100 text-gray-500">IDLE</div>
             </div>
@@ -249,9 +249,9 @@
                 <div class="flex gap-3 items-center mb-3">
                     <div id="sync-qr-area" class="w-20 h-20 bg-white rounded-2xl flex items-center justify-center border shadow-inner overflow-hidden">QR</div>
                     <div class="flex-1">
-                        <p class="text-[10px] text-blue-500 font-bold uppercase mb-1">PIN/QR สำหรับเครื่องลูกเชื่อมต่อ</p>
+                        <p class="text-[10px] text-blue-500 font-bold uppercase mb-1">PIN/QR สำหรับจับคู่เครื่องลูก</p>
                         <div id="display-sync-key" class="text-3xl font-mono text-slate-900 font-black tracking-[6px] leading-none">PIN</div>
-                        <p class="text-[10px] text-gray-400 font-bold mt-2">หลังสแกนหรือกรอก PIN เครื่องแม่ต้องกดยอมรับก่อน</p>
+                        <p class="text-[10px] text-gray-400 font-bold mt-2">หลังกรอก PIN หรือสแกน QR เครื่องแม่ต้องกดยอมรับก่อน เครื่องลูกจึงจะเข้าโหมด Client</p>
                     </div>
                 </div>
 
@@ -593,7 +593,7 @@
         <div class="modal-content">
             <div class="text-center mb-5">
                 <h3 class="font-black text-2xl text-gray-800">การเชื่อมต่ออุปกรณ์</h3>
-                <p class="text-[11px] text-gray-500 font-bold mt-1">สำหรับเข้าโหมดเครื่องลูกด้วย PIN หรือ QR</p>
+                <p class="text-[11px] text-gray-500 font-bold mt-1">กรอก PIN หรือสแกน QR ของเครื่องแม่เพื่อขอเชื่อมต่อ</p>
             </div>
 
             <div class="bg-gray-50 border rounded-[24px] p-4 mb-4">
@@ -623,7 +623,7 @@
             <div class="flex items-center justify-between gap-3 mb-3">
                 <div>
                     <h3 class="font-black text-xl text-gray-800">สแกน QR เครื่องแม่</h3>
-                    <p class="text-[11px] text-gray-500 font-bold">เมื่อสแกนสำเร็จ PIN จะถูกกรอกอัตโนมัติ</p>
+                    <p class="text-[11px] text-gray-500 font-bold">เมื่อสแกนสำเร็จ ระบบจะดึง PIN แล้วส่งคำขอเชื่อมต่อทันที</p>
                 </div>
                 <button onclick="closeClientScanner()" class="w-10 h-10 rounded-xl bg-gray-100 text-gray-500 font-black text-lg">✕</button>
             </div>
@@ -710,13 +710,13 @@
         };
 
         window.submitClientAccess = function() {
-            if (typeof submitClientAccessRequest === 'function') {
-                submitClientAccessRequest();
+            if (typeof submitClientAccessRequest !== 'function') {
+                console.error('[FAKDU][SYNC] submitClientAccessRequest() is missing. Abort connect flow.');
+                if (typeof showToast === 'function') showToast('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่', 'error');
+                else alert('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่');
                 return;
             }
-            console.error('[FAKDU][SYNC] submitClientAccessRequest() is missing. Abort connect flow.');
-            if (typeof showToast === 'function') showToast('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่', 'error');
-            else alert('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่');
+            submitClientAccessRequest();
         };
 
         window.openProModal = window.openProModal || function() {
@@ -736,10 +736,10 @@
     </script>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
-<script src="js/db.js"></script>
-<script src="js/sync.js"></script>
-<script src="js/vault.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+    <script src="js/db.js"></script>
+    <script src="js/sync.js"></script>
+    <script src="js/vault.js"></script>
     <script src="js/core.js"></script>
     <script src="js/client-core.js"></script>
 </div>

@@ -115,7 +115,8 @@
     hwid: '',
     isPro: false,
     lastClientHeartbeatAt: 0,
-    lastCloudSessionCheckAt: 0
+    lastCloudSessionCheckAt: 0,
+    appliedOpsPersistTimer: null
   };
   const CLIENT_MODE_QUERY = new URLSearchParams(window.location.search || '').get('mode') === 'client';
   const IS_CLIENT_NODE = /client\.html$/i.test(window.location.pathname || '') || CLIENT_MODE_QUERY;
@@ -2247,6 +2248,31 @@ function getUnitCardClass(unit) {
     } catch (_) {}
   }
 
+  async function hydrateAppliedOperationsFromDb() {
+    if (!IS_CLIENT_NODE) return;
+    const dbApi = window.FakduDB;
+    if (!dbApi || typeof dbApi.loadClientAppliedOperations !== 'function') return;
+    try {
+      const applied = await dbApi.loadClientAppliedOperations();
+      if (Array.isArray(applied)) {
+        applied.slice(-1000).forEach((opId) => {
+          if (opId) state.processedOperationIds.add(String(opId));
+        });
+      }
+    } catch (_) {}
+  }
+
+  function persistAppliedOperationsToDb() {
+    if (!IS_CLIENT_NODE) return;
+    const dbApi = window.FakduDB;
+    if (!dbApi || typeof dbApi.saveClientAppliedOperations !== 'function') return;
+    if (state.appliedOpsPersistTimer) clearTimeout(state.appliedOpsPersistTimer);
+    state.appliedOpsPersistTimer = setTimeout(() => {
+      const compact = Array.from(state.processedOperationIds).slice(-1000);
+      dbApi.saveClientAppliedOperations(compact).catch(() => {});
+    }, 250);
+  }
+
   function isClientSessionValid() {
     const session = getStoredClientSession();
     if (!session) return false;
@@ -2439,6 +2465,9 @@ function getUnitCardClass(unit) {
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
     await clearClientOpQueue();
+    if (window.FakduDB && typeof window.FakduDB.clearClientAppliedOperations === 'function') {
+      try { await window.FakduDB.clearClientAppliedOperations(); } catch (_) {}
+    }
     state.db.sync.clientSession = null;
     saveDb({ render: true, sync: false });
     if (reason) showToast(reason, 'error');
@@ -2581,6 +2610,7 @@ function getUnitCardClass(unit) {
         const oldest = state.processedOperationIds.values().next().value;
         if (oldest) state.processedOperationIds.delete(oldest);
       }
+      persistAppliedOperationsToDb();
     }
     if (String(action.shopId || '') !== String(state.db.shopId || '')) return;
     const client = state.db.sync.clients.find((row) => row.clientId === action.clientId);
@@ -2833,6 +2863,10 @@ function getUnitCardClass(unit) {
     }));
     const api = resolveFirebaseSyncApi();
     if (api && state.db.shopId) {
+      api.resolveJoinRequest(state.db.shopId, client.clientId, 'approved', {
+        approvedAt: Date.now(),
+        approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+      }).catch(() => {});
       api.upsertClient(state.db.shopId, {
         clientId: client.clientId,
         profileName: client.profileName || client.name || client.clientId,
@@ -2893,6 +2927,10 @@ function getUnitCardClass(unit) {
     logOperation('REJECT_CLIENT', { clientId });
     const api = resolveFirebaseSyncApi();
     if (api && state.db.shopId) {
+      api.resolveJoinRequest(state.db.shopId, clientId, 'rejected', {
+        rejectedAt: Date.now(),
+        rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+      }).catch(() => {});
       api.upsertClient(state.db.shopId, {
         clientId,
         approved: false,
@@ -3193,7 +3231,7 @@ function getUnitCardClass(unit) {
       await persistClientSession(sessionPayload);
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
-      window.location.href = 'index.html?mode=client';
+      window.location.href = 'client.html';
     } catch (error) {
       if (error?.message === 'rejected') {
         showToast('เครื่องแม่ปฏิเสธคำขอ', 'error');
@@ -3242,6 +3280,9 @@ function getUnitCardClass(unit) {
     localStorage.removeItem(LS_PENDING_SYNC_VERSION);
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
     await clearClientOpQueue();
+    if (window.FakduDB && typeof window.FakduDB.clearClientAppliedOperations === 'function') {
+      try { await window.FakduDB.clearClientAppliedOperations(); } catch (_) {}
+    }
     try {
       if ('caches' in window) {
         const keys = await caches.keys();
@@ -3335,12 +3376,13 @@ function getUnitCardClass(unit) {
       if (!IS_CLIENT_NODE && localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true') {
         const lastSession = getStoredClientSession();
         if (lastSession?.clientSessionToken) {
-          window.location.replace('index.html?mode=client');
+          window.location.replace('client.html');
           return;
         }
       }
       state.hwid = await resolveDbApi().getDeviceId();
       await hydrateClientSessionFromDb();
+      await hydrateAppliedOperationsFromDb();
       const raw = await resolveDbApi().load();
       state.db = normalizeDb(raw);
       if (!state.db.shopId) state.db.shopId = makeShopId();

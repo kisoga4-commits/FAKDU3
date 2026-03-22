@@ -217,6 +217,16 @@
           updatedAt: now
         });
       },
+      async resolveJoinRequest(shopId = '', clientId = '', status = 'approved', extra = {}) {
+        if (!shopId || !clientId) return;
+        const safeStatus = String(status || '').toLowerCase() === 'rejected' ? 'rejected' : 'approved';
+        await db.ref(`${joinRequestsPath(shopId)}/${clientId}`).update({
+          status: safeStatus,
+          approved: safeStatus === 'approved',
+          ...extra,
+          updatedAt: Date.now()
+        });
+      },
       async upsertClient(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
         await db.ref(`${shopRoot(shopId)}/clients/${client.clientId}`).set({

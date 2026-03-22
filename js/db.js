@@ -15,6 +15,7 @@
   const KEY_CLIENT_SESSION = 'client_session';
   const KEY_CLIENT_QUEUE = 'client_queue';
   const KEY_CLIENT_LAST_SYNC = 'client_last_sync';
+  const KEY_CLIENT_APPLIED_OPERATIONS = 'client_applied_operations';
   const KEY_DRAFTS = 'drafts';
   const KEY_SETTINGS_CACHE = 'settings_cache';
   const KEY_MENU_IMAGE_CACHE_PREFIX = 'menu_image_cache:';
@@ -392,6 +393,40 @@
     await kvSet(KEY_CLIENT_LAST_SYNC, jsonClone(payload || {}));
     return true;
   }
+
+  async function loadClientAppliedOperations() {
+    const raw = await kvGet(KEY_CLIENT_APPLIED_OPERATIONS);
+    return Array.isArray(raw) ? jsonClone(raw) : [];
+  }
+
+  async function saveClientAppliedOperations(opIds = []) {
+    const safe = Array.from(new Set(Array.isArray(opIds) ? opIds.map((id) => String(id || '').trim()).filter(Boolean) : []));
+    await kvSet(KEY_CLIENT_APPLIED_OPERATIONS, safe);
+    return true;
+  }
+
+  async function markClientAppliedOperation(opId = '') {
+    const safeOpId = String(opId || '').trim();
+    if (!safeOpId) return false;
+    const list = await loadClientAppliedOperations();
+    if (list.includes(safeOpId)) return true;
+    list.push(safeOpId);
+    const compact = list.slice(-1000);
+    await saveClientAppliedOperations(compact);
+    return true;
+  }
+
+  async function hasClientAppliedOperation(opId = '') {
+    const safeOpId = String(opId || '').trim();
+    if (!safeOpId) return false;
+    const list = await loadClientAppliedOperations();
+    return list.includes(safeOpId);
+  }
+
+  async function clearClientAppliedOperations() {
+    await kvDelete(KEY_CLIENT_APPLIED_OPERATIONS);
+    return true;
+  }
   //* client local close
 
   //* drafts open
@@ -582,6 +617,11 @@
     clearClientQueue,
     loadClientLastSync,
     saveClientLastSync,
+    loadClientAppliedOperations,
+    saveClientAppliedOperations,
+    markClientAppliedOperation,
+    hasClientAppliedOperation,
+    clearClientAppliedOperations,
 
     loadDrafts,
     saveDrafts,

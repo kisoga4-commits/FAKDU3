@@ -25,6 +25,8 @@
     if (!fb.apps || !fb.apps.length) fb.initializeApp(firebaseConfig);
     const db = fb.database();
     const shopRoot = (shopId = '') => `shops/${shopId}`;
+    const eventsPath = (shopId = '') => `${shopRoot(shopId)}/events`;
+    const joinRequestsPath = (shopId = '') => `${shopRoot(shopId)}/joinRequests`;
     const SYNC_PIN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
     async function cleanupSyncPinsForShop(shopId = '', currentPin = '', prevPin = '') {
@@ -146,7 +148,7 @@
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};
-        const ref = db.ref(`${shopRoot(shopId)}/events`).limitToLast(150);
+        const ref = db.ref(eventsPath(shopId)).limitToLast(150);
         const handler = (snap) => {
           const payload = snap.val();
           if (!payload) return;
@@ -159,7 +161,7 @@
       },
       listenJoinRequests(shopId = '', onRequest = () => {}) {
         if (!shopId) return () => {};
-        const ref = db.ref(`${shopRoot(shopId)}/joinRequests`);
+        const ref = db.ref(joinRequestsPath(shopId));
         const handler = (snap) => {
           const payload = snap.val();
           if (!payload || !payload.clientId) return;
@@ -195,7 +197,7 @@
       },
       async send(shopId = '', message = {}) {
         if (!shopId || !message?.type) return;
-        await db.ref(`${shopRoot(shopId)}/events/${uid()}`).set({
+        await db.ref(`${eventsPath(shopId)}/${uid()}`).set({
           ...message,
           shopId: message.shopId || shopId,
           id: message.id || uid(),
@@ -205,7 +207,7 @@
       async writeJoinRequest(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
         const now = Date.now();
-        await db.ref(`${shopRoot(shopId)}/joinRequests/${client.clientId}`).set({
+        await db.ref(`${joinRequestsPath(shopId)}/${client.clientId}`).set({
           ...client,
           clientId: String(client.clientId || ''),
           shopId: client.shopId || shopId,

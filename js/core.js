@@ -2165,6 +2165,7 @@ function getUnitCardClass(unit) {
 
   async function handleMasterApproval(payload) {
     if (!IS_CLIENT_NODE || !payload?.clientId) return;
+    console.log('[FAKDU][SYNC] client received approval update', payload);
     const clientId = localStorage.getItem('FAKDU_CLIENT_ID') || '';
     if (!clientId || payload.clientId !== clientId) return;
     if (payload.approved) {
@@ -2571,6 +2572,14 @@ function getUnitCardClass(unit) {
     }
     const exists = state.db.sync.approvals.find((row) => row.clientId === client.clientId);
     const isNewRequest = !exists;
+    console.log('[FAKDU][SYNC] master received pairing request', {
+      clientId: client.clientId,
+      profileName: client.profileName || client.name || '',
+      pin: client.pin || '',
+      shopId: client.shopId || '',
+      syncVersion: Number(client.syncVersion || 0),
+      isNewRequest
+    });
     if (exists) {
       exists.requestedAt = Date.now();
       exists.profileName = client.profileName || exists.profileName || exists.name;
@@ -2825,7 +2834,12 @@ function getUnitCardClass(unit) {
 
   function openMasterApprovalModal() {
     renderIncomingClientRequestPopup();
-    try { openModal('modal-client-request-popup'); } catch (_) {}
+    try {
+      console.log('[FAKDU][SYNC] master opening approval popup');
+      openModal('modal-client-request-popup');
+    } catch (error) {
+      console.warn('[FAKDU][SYNC] failed to open approval popup, request remains in inbox', error);
+    }
   }
 
   function openApprovalInbox() {
@@ -2840,6 +2854,7 @@ function getUnitCardClass(unit) {
     }
     const approval = state.db.sync.approvals.find((row) => row.clientId === clientId);
     if (!approval) return;
+    console.log('[FAKDU][SYNC] master approve request', { clientId, approval });
     if (Number(approval.syncVersion || 0) !== Number(state.db.sync.syncVersion || 1)) {
       state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
       renderClientApprovalList();
@@ -2942,6 +2957,7 @@ function getUnitCardClass(unit) {
   }
 
   function rejectClient(clientId) {
+    console.log('[FAKDU][SYNC] master reject request', { clientId });
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('REJECT_CLIENT', { clientId });
     const api = resolveFirebaseSyncApi();
@@ -3027,6 +3043,7 @@ function getUnitCardClass(unit) {
   }
 
   function triggerSyncCheck() {
+    console.log('[FAKDU][SYNC] triggerSyncCheck invoked (post-pair verification flow only)');
     const onlineClients = state.db.sync.clients.filter((client) => client.approved && getClientStatus(client) === 'online');
     setSyncButtonState('loading');
     state.db.sync.lastCheck = {
@@ -3127,6 +3144,7 @@ function getUnitCardClass(unit) {
 
   //* scanner open
   async function openClientScanner() {
+    console.log('[FAKDU][SYNC] openClientScanner');
     openModal('modal-client-scanner');
     if (!window.Html5Qrcode) {
       showToast('อุปกรณ์นี้ยังใช้สแกน QR ไม่ได้', 'error');
@@ -3141,19 +3159,28 @@ function getUnitCardClass(unit) {
         preferredCamera,
         { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0 },
         (decodedText) => {
+          console.log('[FAKDU][SYNC] QR scan success raw payload', decodedText);
+          let parsedPin = '';
           try {
             const data = JSON.parse(decodedText);
             const pin = data.pin || '';
             const shopId = data.shopId || '';
             const syncVersion = Number(data.syncVersion || 1);
-            if (pin && qs('manual-pin')) qs('manual-pin').value = pin;
+            parsedPin = normalizeSyncPin(pin);
+            if (parsedPin && qs('manual-pin')) qs('manual-pin').value = parsedPin;
             if (shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', shopId);
             if (syncVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(syncVersion));
           } catch (_) {
-            if (qs('manual-pin')) qs('manual-pin').value = decodedText;
+            parsedPin = normalizeSyncPin(decodedText);
+            if (parsedPin && qs('manual-pin')) qs('manual-pin').value = parsedPin;
           }
           closeClientScanner();
-          showToast('สแกนสำเร็จ', 'success');
+          showToast('สแกนสำเร็จ กำลังส่งคำขอ...', 'success');
+          if (!parsedPin || parsedPin.length !== 6) {
+            showToast('QR ไม่มี PIN ที่ถูกต้อง', 'error');
+            return;
+          }
+          submitClientAccessRequest();
         }
       );
     } catch (error) {
@@ -3177,6 +3204,10 @@ function getUnitCardClass(unit) {
   async function submitClientAccessRequest() {
     const rawPin = qs('manual-pin')?.value?.trim() || '';
     const pin = normalizeSyncPin(rawPin);
+    console.log('[FAKDU][SYNC] submitClientAccessRequest start', {
+      rawPin,
+      normalizedPin: pin
+    });
     if (pin.length !== 6) return showToast('PIN ต้องเป็นตัวเลข 6 หลัก', 'error');
     if (qs('manual-pin')) qs('manual-pin').value = pin;
 
@@ -3222,6 +3253,11 @@ function getUnitCardClass(unit) {
         shopId: resolvedShopId,
         syncVersion: serverVersion
       });
+      console.log('[FAKDU][SYNC] pairing request created', {
+        shopId: resolvedShopId,
+        clientId: profile.clientId,
+        syncVersion: serverVersion || getPendingSyncVersion()
+      });
     } catch (error) {
       console.warn('PIN verification failed', error);
       showToast('ตรวจสอบ PIN กับ cloud ไม่สำเร็จ', 'error');
@@ -3237,6 +3273,7 @@ function getUnitCardClass(unit) {
           ? api.listenClientApprovalStatus.bind(api)
           : api.listenClient.bind(api);
         const stop = listenApprovalStatus(resolvedShopId, profile.clientId, (payload) => {
+          console.log('[FAKDU][SYNC] client approval listener update', payload);
           if (!payload) return;
           if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
           if (!payload.approved) return;

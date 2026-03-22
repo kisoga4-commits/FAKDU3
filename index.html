@@ -45,12 +45,11 @@
             </div>
         </div>
 
-        <div class="trial-badge-wrap">
-            <button id="trial-badge" onclick="openProModal()" class="bg-yellow-400 text-black px-5 py-1.5 rounded-full text-[13px] font-black cursor-pointer shadow-lg">ทดลองใช้งาน</button>
-        </div>
-
         <div class="flex flex-col items-end justify-center w-[30%] gap-2 z-10 pr-2">
-            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU Offline</div>
+            <div class="trial-badge-wrap">
+                <button id="trial-badge" onclick="openProModal()" class="bg-yellow-400 text-black px-5 py-1.5 rounded-full text-[13px] font-black cursor-pointer shadow-lg">ทดลองใช้งาน</button>
+            </div>
+            <div class="text-right leading-tight text-[11px] font-black text-white/70 tracking-wide">FAKDU</div>
         </div>
     </header>
     <!--** header close -->
@@ -138,18 +137,28 @@
 
         <div id="sub-dash">
             <div class="grid grid-cols-3 gap-3 mb-6">
-                <div class="bg-emerald-500 p-4 rounded-3xl text-white text-center shadow-lg">
+                <button id="card-stat-today" onclick="selectSalesCompareMode('today', this)" class="sales-summary-card is-active bg-emerald-500 p-4 rounded-3xl text-white text-center shadow-lg transition-all w-full">
                     <div class="text-[10px] font-bold uppercase">วันนี้</div>
                     <div class="text-xl font-black">฿<span id="stat-today">0</span></div>
-                </div>
-                <div id="card-stat-week" onclick="handleLockedFeatureClick()" class="bg-blue-500 p-4 rounded-3xl text-white text-center shadow-lg transition-all locked-feature">
+                </button>
+                <button id="card-stat-week" onclick="selectSalesCompareMode('week', this)" class="sales-summary-card bg-blue-500 p-4 rounded-3xl text-white text-center shadow-lg transition-all w-full">
                     <div class="text-[10px] font-bold uppercase">7 วัน</div>
                     <div class="text-xl font-black">฿<span id="stat-week">0</span></div>
-                </div>
-                <div id="card-stat-month" onclick="handleLockedFeatureClick()" class="bg-purple-500 p-4 rounded-3xl text-white text-center shadow-lg transition-all locked-feature">
+                </button>
+                <button id="card-stat-month" onclick="selectSalesCompareMode('month', this)" class="sales-summary-card bg-purple-500 p-4 rounded-3xl text-white text-center shadow-lg transition-all w-full">
                     <div class="text-[10px] font-bold uppercase">30 วัน</div>
                     <div class="text-xl font-black">฿<span id="stat-month">0</span></div>
+                </button>
+            </div>
+            <div class="bg-white p-4 rounded-[24px] border border-gray-100 shadow-sm mb-6">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <div id="sales-compare-title" class="font-black text-sm text-gray-800">รายได้ล่าสุดเทียบย้อนหลัง</div>
+                        <div id="sales-compare-range" class="text-[11px] font-bold text-gray-400 mt-1"></div>
+                    </div>
+                    <div id="sales-compare-change" class="text-xs font-black px-3 py-1.5 rounded-full bg-slate-100 text-slate-700">± 0%</div>
                 </div>
+                <div id="sales-compare-chart" class="sales-compare-chart"></div>
             </div>
             <div class="grid grid-cols-3 gap-3 mb-6">
                 <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">

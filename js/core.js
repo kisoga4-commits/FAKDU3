@@ -2603,6 +2603,7 @@ function getUnitCardClass(unit) {
     renderClientApprovalList();
     updateApprovalInboxUi();
     renderIncomingClientRequestPopup();
+    saveDb({ render: false, sync: false });
 
     if (!IS_CLIENT_NODE && isNewRequest) openMasterApprovalModal();
 

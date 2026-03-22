@@ -37,7 +37,7 @@
     const hasSession = !!readClientSession();
     if (hasSession) return;
     const pending = readPendingConnect();
-    if (!pending.shopId || !pending.clientId) return;
+    if (!pending.pin || !pending.clientId) return;
     const api = window.FakduSync?.resolveApi?.();
     if (!api) return;
     console.log('[FAKDU][SYNC] client-core waiting for approval status', pending);
@@ -45,15 +45,15 @@
       ? api.listenClientApprovalStatus.bind(api)
       : api.listenClient?.bind(api);
     if (typeof listenFn !== 'function') return;
-    listenFn(pending.shopId, pending.clientId, async (payload) => {
+    listenFn(pending.pin, pending.clientId, async (payload) => {
       console.log('[FAKDU][SYNC] client-core approval status update', payload);
       if (!payload) return;
-      if (payload.approved === true && payload.clientSessionToken) {
+      if (payload.approved === true && (payload.clientSessionToken || payload.signed_token)) {
         const session = {
-          shopId: pending.shopId,
+          shopId: payload.shopId || pending.shopId || '',
           clientId: pending.clientId,
           profileName: String(localStorage.getItem('FAKDU_CLIENT_PROFILE_NAME') || 'เครื่องลูก'),
-          clientSessionToken: payload.clientSessionToken,
+          clientSessionToken: payload.clientSessionToken || payload.signed_token || '',
           syncVersion: Number(payload.sessionSyncVersion || payload.syncVersion || 1)
         };
         localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));

@@ -27,6 +27,7 @@
     const shopRoot = (shopId = '') => `shops/${shopId}`;
     const eventsPath = (shopId = '') => `${shopRoot(shopId)}/events`;
     const joinRequestsPath = (shopId = '') => `${shopRoot(shopId)}/joinRequests`;
+    const pairRequestPath = (pin = '') => `pair_requests/${normalizeSyncPin(pin)}`;
     const SYNC_PIN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
     async function cleanupSyncPinsForShop(shopId = '', currentPin = '', prevPin = '') {
@@ -163,22 +164,38 @@
         return () => ref.off('child_added', handler);
       },
       listenJoinRequests(shopId = '', onRequest = () => {}) {
-        if (!shopId) return () => {};
-        const ref = db.ref(joinRequestsPath(shopId));
+        const safePin = normalizeSyncPin(shopId);
+        if (safePin.length !== 6) return () => {};
+        const ref = db.ref(pairRequestPath(safePin));
         const handler = (snap) => {
           const payload = snap.val();
-          if (!payload || !payload.clientId) return;
-          onRequest(payload);
+          if (!payload) return;
+          const hasRequestId = payload.clientId || payload.child_machine_id;
+          if (!hasRequestId) return;
+          onRequest({
+            ...payload,
+            pin: safePin
+          });
         };
-        ref.on('child_added', handler);
-        ref.on('child_changed', handler);
+        ref.on('value', handler);
         return () => {
-          ref.off('child_added', handler);
-          ref.off('child_changed', handler);
+          ref.off('value', handler);
         };
       },
       listenClientApprovalStatus(shopId = '', clientId = '', onStatus = () => {}) {
-        return this.listenClient(shopId, clientId, onStatus);
+        const safePin = normalizeSyncPin(shopId);
+        if (safePin.length !== 6) return () => {};
+        const safeClientId = String(clientId || '');
+        const ref = db.ref(pairRequestPath(safePin));
+        const handler = (snap) => {
+          if (!snap.exists()) return;
+          const payload = snap.val() || {};
+          const requestClientId = String(payload.clientId || payload.child_machine_id || '');
+          if (safeClientId && requestClientId && safeClientId !== requestClientId) return;
+          onStatus(payload);
+        };
+        ref.on('value', handler);
+        return () => ref.off('value', handler);
       },
       listenClient(shopId = '', clientId = '', onClient = () => {}) {
         if (!shopId || !clientId) return () => {};
@@ -211,12 +228,16 @@
         });
       },
       async writeJoinRequest(shopId = '', client = {}) {
-        if (!shopId || !client?.clientId) return;
+        const safePin = normalizeSyncPin(shopId || client?.pin || '');
+        const clientId = String(client?.clientId || client?.child_machine_id || '');
+        if (safePin.length !== 6 || !clientId) return;
         const now = Date.now();
-        await db.ref(`${joinRequestsPath(shopId)}/${client.clientId}`).set({
+        await db.ref(pairRequestPath(safePin)).set({
           ...client,
-          clientId: String(client.clientId || ''),
-          shopId: client.shopId || shopId,
+          clientId,
+          child_machine_id: clientId,
+          pin: safePin,
+          shopId: client.shopId || '',
           type: 'CLIENT_ACCESS_REQUEST',
           status: 'pending',
           requestedAt: Number(client.requestedAt || now),
@@ -227,11 +248,15 @@
         return this.writeJoinRequest(shopId, client);
       },
       async resolveJoinRequest(shopId = '', clientId = '', status = 'approved', extra = {}) {
-        if (!shopId || !clientId) return;
+        const safePin = normalizeSyncPin(shopId || extra?.pin || '');
+        if (safePin.length !== 6) return;
         const safeStatus = String(status || '').toLowerCase() === 'rejected' ? 'rejected' : 'approved';
-        await db.ref(`${joinRequestsPath(shopId)}/${clientId}`).update({
+        await db.ref(pairRequestPath(safePin)).update({
           status: safeStatus,
           approved: safeStatus === 'approved',
+          child_machine_id: String(extra.child_machine_id || clientId || ''),
+          clientId: String(extra.clientId || extra.child_machine_id || clientId || ''),
+          signed_token: String(extra.signed_token || extra.clientSessionToken || ''),
           ...extra,
           updatedAt: Date.now()
         });

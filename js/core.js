@@ -2024,7 +2024,7 @@ function getUnitCardClass(unit) {
       }
       if (!IS_CLIENT_NODE && typeof api.listenJoinRequests === 'function') {
         try {
-          state.stopJoinRequestListener = api.listenJoinRequests(state.db.shopId, (client) => handleClientAccessRequest(client));
+          state.stopJoinRequestListener = api.listenJoinRequests(state.db.sync.currentSyncPin, (client) => handleClientAccessRequest(client));
         } catch (_) {
           state.stopJoinRequestListener = null;
         }
@@ -2040,17 +2040,18 @@ function getUnitCardClass(unit) {
         const clientId = getClientProfile().clientId;
         if (clientId) {
           try {
-            state.stopClientApproveListener = api.listenClient(state.db.shopId, clientId, (payload) => {
+            const pendingPin = String(localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || state.db.sync.currentSyncPin || '');
+            state.stopClientApproveListener = api.listenClientApprovalStatus(pendingPin, clientId, (payload) => {
               const isApproved = payload?.approved === true;
               const isRejected = payload?.approved === false && String(payload?.status || '').toLowerCase() === 'rejected';
               if (!isApproved && !isRejected) return;
               handleMasterApproval({
                 clientId,
                 approved: isApproved,
-                syncKey: payload?.syncKey || state.db.sync.currentSyncPin,
-                shopId: state.db.shopId,
+                syncKey: payload?.pin || payload?.syncKey || pendingPin || state.db.sync.currentSyncPin,
+                shopId: payload?.shopId || state.db.shopId,
                 syncVersion: Number(payload?.sessionSyncVersion || payload?.syncVersion || state.db.sync.syncVersion || 1),
-                clientSessionToken: payload?.clientSessionToken || '',
+                clientSessionToken: payload?.clientSessionToken || payload?.signed_token || '',
                 profileName: payload?.profileName || ''
               });
             });
@@ -2558,7 +2559,7 @@ function getUnitCardClass(unit) {
 
   function handleClientAccessRequest(client) {
     if (!client?.clientId) return;
-    if (String(client.shopId || '') !== String(state.db.shopId || '')) return;
+    if (client.shopId && String(client.shopId || '') !== String(state.db.shopId || '')) return;
     const requestedStatus = String(client.status || 'pending').toLowerCase();
     if (requestedStatus && requestedStatus !== 'pending') return;
     const activePin = String(state.db.sync.currentSyncPin || '');
@@ -2897,9 +2898,15 @@ function getUnitCardClass(unit) {
       const approveClientRequest = typeof api.approveClient === 'function'
         ? api.approveClient.bind(api)
         : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'approved', extra));
-      approveClientRequest(state.db.shopId, client.clientId, {
+      approveClientRequest(state.db.sync.currentSyncPin, client.clientId, {
         approvedAt: Date.now(),
-        approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+        approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER',
+        shopId: state.db.shopId,
+        pin: state.db.sync.currentSyncPin,
+        child_machine_id: client.clientId,
+        clientSessionToken: client.clientSessionToken,
+        signed_token: client.clientSessionToken,
+        sessionSyncVersion: Number(client.sessionSyncVersion || state.db.sync.syncVersion || 1)
       }).catch(() => {});
       api.upsertClient(state.db.shopId, {
         clientId: client.clientId,
@@ -2965,9 +2972,12 @@ function getUnitCardClass(unit) {
       const rejectClientRequest = typeof api.rejectClient === 'function'
         ? api.rejectClient.bind(api)
         : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'rejected', extra));
-      rejectClientRequest(state.db.shopId, clientId, {
+      rejectClientRequest(state.db.sync.currentSyncPin, clientId, {
         rejectedAt: Date.now(),
-        rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER'
+        rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER',
+        shopId: state.db.shopId,
+        pin: state.db.sync.currentSyncPin,
+        child_machine_id: clientId
       }).catch(() => {});
       api.upsertClient(state.db.shopId, {
         clientId,
@@ -3163,13 +3173,8 @@ function getUnitCardClass(unit) {
           let parsedPin = '';
           try {
             const data = JSON.parse(decodedText);
-            const pin = data.pin || '';
-            const shopId = data.shopId || '';
-            const syncVersion = Number(data.syncVersion || 1);
-            parsedPin = normalizeSyncPin(pin);
+            parsedPin = normalizeSyncPin(data.pin || '');
             if (parsedPin && qs('manual-pin')) qs('manual-pin').value = parsedPin;
-            if (shopId) localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', shopId);
-            if (syncVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(syncVersion));
           } catch (_) {
             parsedPin = normalizeSyncPin(decodedText);
             if (parsedPin && qs('manual-pin')) qs('manual-pin').value = parsedPin;
@@ -3217,36 +3222,14 @@ function getUnitCardClass(unit) {
     let resolvedShopId = '';
     let serverVersion = 0;
     try {
-      let pinMap = null;
-      if (typeof api.lookupPinToShopId === 'function' || typeof api.readSyncPin === 'function') {
-        const lookupPin = typeof api.lookupPinToShopId === 'function'
-          ? api.lookupPinToShopId.bind(api)
-          : api.readSyncPin.bind(api);
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          pinMap = await lookupPin(pin);
-          if (pinMap?.shopId && pinMap.active !== false) break;
-          await new Promise((resolve) => setTimeout(resolve, 400));
-        }
-      }
-      if (!pinMap?.shopId || pinMap.active === false) {
-        showToast('PIN ไม่ถูกต้อง หรือเครื่องแม่ยังไม่ขึ้น cloud', 'error');
-        return;
-      }
-      resolvedShopId = String(pinMap.shopId || '');
-      serverVersion = Number(pinMap.syncVersion || 0);
-      const meta = await api.readSyncMeta(resolvedShopId);
-      const serverPin = String(meta?.currentSyncPin || '');
-      serverVersion = Number(meta?.syncVersion || 0) || serverVersion || getPendingSyncVersion();
-      if (!serverPin || pin !== serverPin) {
-        showToast('PIN ไม่ถูกต้อง', 'error');
-        return;
-      }
-      if (serverVersion > 0) localStorage.setItem(LS_PENDING_SYNC_VERSION, String(serverVersion));
+      resolvedShopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
+      serverVersion = Number(localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
       const sendJoinRequest = typeof api.sendJoinRequest === 'function'
         ? api.sendJoinRequest.bind(api)
         : api.writeJoinRequest.bind(api);
-      await sendJoinRequest(resolvedShopId, {
+      await sendJoinRequest(pin, {
         clientId: profile.clientId,
+        child_machine_id: profile.clientId,
         profileName: profile.profileName,
         avatar: profile.avatar,
         pin,
@@ -3254,7 +3237,7 @@ function getUnitCardClass(unit) {
         syncVersion: serverVersion
       });
       console.log('[FAKDU][SYNC] pairing request created', {
-        shopId: resolvedShopId,
+        shopId: resolvedShopId || '(pending)',
         clientId: profile.clientId,
         syncVersion: serverVersion || getPendingSyncVersion()
       });
@@ -3272,14 +3255,14 @@ function getUnitCardClass(unit) {
         const listenApprovalStatus = typeof api.listenClientApprovalStatus === 'function'
           ? api.listenClientApprovalStatus.bind(api)
           : api.listenClient.bind(api);
-        const stop = listenApprovalStatus(resolvedShopId, profile.clientId, (payload) => {
+        const stop = listenApprovalStatus(pin, profile.clientId, (payload) => {
           console.log('[FAKDU][SYNC] client approval listener update', payload);
           if (!payload) return;
           if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
           if (!payload.approved) return;
           const approvedVersion = Number(payload.sessionSyncVersion || payload.syncVersion || 0);
           if (serverVersion > 0 && approvedVersion > 0 && approvedVersion !== serverVersion) return;
-          if (!payload.clientSessionToken) return;
+          if (!payload.clientSessionToken && !payload.signed_token) return;
           clearTimeout(timeoutId);
           try { stop(); } catch (_) {}
           resolve(payload);
@@ -3290,10 +3273,10 @@ function getUnitCardClass(unit) {
         }, 120000);
       });
       const sessionPayload = {
-        shopId: resolvedShopId,
+        shopId: resolvedShopId || String(approvedPayload.shopId || ''),
         clientId: profile.clientId,
         profileName: profile.profileName,
-        clientSessionToken: approvedPayload.clientSessionToken || '',
+        clientSessionToken: approvedPayload.clientSessionToken || approvedPayload.signed_token || '',
         syncVersion: Number(approvedPayload.sessionSyncVersion || approvedPayload.syncVersion || serverVersion || 1)
       };
       await persistClientSession(sessionPayload);

@@ -9,13 +9,11 @@ let lastCleanupAt = 0;
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './client.html',
   './style.css',
   './manifest.json',
   './icon.png',
   './js/db.js',
   './js/core.js',
-  './js/client-core.js',
   './js/vault.js'
 ];
 

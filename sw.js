@@ -86,17 +86,41 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cached = await caches.match(event.request);
-    const networkFetch = fetch(event.request)
-      .then(async (response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
+    const isNavigation = event.request.mode === 'navigate';
+
+    if (isNavigation) {
+      if (cached) return cached;
+      try {
+        const networkResponse = await fetch(event.request);
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const cache = await caches.open(CACHE_NAME);
-          cache.put(event.request, response.clone());
+          await cache.put(event.request, networkResponse.clone());
           stampCacheEntry(event.request).catch(() => {});
         }
-        return response;
-      })
-      .catch(() => cached);
+        return networkResponse;
+      } catch (_) {
+        const fallback = await caches.match('./index.html')
+          || await caches.match('/FAKDU3/index.html')
+          || await caches.match('./');
+        if (fallback) return fallback;
+        return new Response(
+          '<!doctype html><html><body style="font-family:sans-serif;padding:16px">Offline และยังไม่มี cache หน้าเริ่มต้น</body></html>',
+          { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      }
+    }
 
-    return cached || networkFetch;
+    if (cached) return cached;
+    try {
+      const response = await fetch(event.request);
+      if (response && response.status === 200 && response.type === 'basic') {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
+        stampCacheEntry(event.request).catch(() => {});
+      }
+      return response;
+    } catch (_) {
+      return new Response('', { status: 504, statusText: 'Offline' });
+    }
   })());
 });

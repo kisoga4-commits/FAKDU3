@@ -3591,6 +3591,20 @@
   //* client profile close
 
   //* install open
+  function isPwaInstalled() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  function syncInstallBannerVisibility() {
+    const banner = qs('pwa-install-banner');
+    if (!banner) return;
+    if (isPwaInstalled() || !state.deferredInstallPrompt) {
+      banner.classList.add('hidden');
+      return;
+    }
+    banner.classList.remove('hidden');
+  }
+
   function installPWA() {
     if (!state.deferredInstallPrompt) {
       showToast('ยังติดตั้งไม่ได้ในตอนนี้', 'error');
@@ -3599,14 +3613,20 @@
     state.deferredInstallPrompt.prompt();
     state.deferredInstallPrompt.userChoice.finally(() => {
       state.deferredInstallPrompt = null;
-      qs('pwa-install-banner')?.classList.add('hidden');
+      syncInstallBannerVisibility();
     });
   }
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
+    if (isPwaInstalled()) return;
     state.deferredInstallPrompt = event;
-    qs('pwa-install-banner')?.classList.remove('hidden');
+    syncInstallBannerVisibility();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    state.deferredInstallPrompt = null;
+    syncInstallBannerVisibility();
   });
   //* install close
 
@@ -3781,6 +3801,7 @@
   });
   document.addEventListener('DOMContentLoaded', () => {
     _0x7d11();
+    syncInstallBannerVisibility();
     init();
   });
   document.addEventListener('keydown', (event) => {

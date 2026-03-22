@@ -7,8 +7,11 @@
   const LS_LAST_SHOP_ID = 'FAKDU_VAULT_LAST_SHOP_ID';
   const LS_LAST_LICENSE = 'FAKDU_VAULT_LAST_LICENSE_V1020';
   const LS_ACTIVATION_CACHE = 'FAKDU_VAULT_ACTIVATION_CACHE_V1020';
-  // Placeholder/config key only. Real signing secret must stay on owner/server side.
+
+   Placeholder/config key only. Real signing secret must stay on owner/server side.
   const VAULT_SECRET_CONFIG_NAME = 'FAKDU_VAULT_MASTER_SECRET';
+
+
 
   function now() {
     return Date.now();
@@ -48,10 +51,12 @@
     return api;
   }
 
+
   function getConfiguredVaultSecretName() {
     const configured = String(window?.[VAULT_SECRET_CONFIG_NAME] || '').trim();
     return configured || VAULT_SECRET_CONFIG_NAME;
-  }
+
+
 
   function ensureDbShape(db) {
     const target = db && typeof db === 'object' ? db : {};
@@ -515,7 +520,8 @@
     const sid = await ensureShopId(db);
     return {
       appVersion: APP_VERSION,
-      vaultSecretConfigName: getConfiguredVaultSecretName(),
+
+
       shopId: sid,
       licenseExists: Boolean(String(db.licenseToken || '').trim()),
       licenseActive: Boolean(db.licenseActive),

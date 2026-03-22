@@ -26,28 +26,32 @@
     const db = fb.database();
     const shopRoot = (shopId = '') => `shops/${shopId}`;
     const eventsPath = (shopId = '') => `${shopRoot(shopId)}/events`;
-    const joinRequestsPath = (shopId = '') => `${shopRoot(shopId)}/joinRequests`;
-    const pairRequestPath = (pin = '') => `pair_requests/${normalizeSyncPin(pin)}`;
-    const SYNC_PIN_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+    const pairHostPath = (parentMachineId = '') => `pair_hosts/${String(parentMachineId || '').trim()}`;
+    const pairRequestPath = (pin = '', requestId = '') => {
+      const safePin = normalizeSyncPin(pin);
+      return requestId
+        ? `pair_requests/${safePin}/${String(requestId || '').trim()}`
+        : `pair_requests/${safePin}`;
+    };
+    const pairSessionPath = (childMachineId = '') => `pair_sessions/${String(childMachineId || '').trim()}`;
+    const PAIR_PIN_TTL_MS = 1000 * 60 * 10;
+    const PAIR_REQUEST_TTL_MS = 1000 * 60 * 60 * 24;
 
-    async function cleanupSyncPinsForShop(shopId = '', currentPin = '', prevPin = '') {
-      if (!shopId) return;
+    async function cleanupRequests(pin = '') {
+      const safePin = normalizeSyncPin(pin);
+      if (safePin.length !== 6) return;
       try {
-        const snap = await db.ref('syncPins').orderByChild('shopId').equalTo(shopId).get();
+        const snap = await db.ref(pairRequestPath(safePin)).limitToLast(120).get();
         if (!snap.exists()) return;
         const now = Date.now();
-        const values = snap.val() || {};
         const tasks = [];
-        Object.entries(values).forEach(([pin, row]) => {
-          const safe = normalizeSyncPin(pin);
-          if (!safe) return;
-          if (safe === currentPin) return;
-          const payload = row && typeof row === 'object' ? row : {};
-          const isActive = payload.active !== false;
-          const updatedAt = Number(payload.updatedAt || 0);
-          const isExpired = updatedAt > 0 && (now - updatedAt) > SYNC_PIN_TTL_MS;
-          if (safe === prevPin || (!isActive && isExpired)) {
-            tasks.push(db.ref(`syncPins/${safe}`).remove());
+        Object.entries(snap.val() || {}).forEach(([requestId, payload]) => {
+          const row = payload && typeof payload === 'object' ? payload : {};
+          const createdAt = Number(row.created_at || row.createdAt || 0);
+          const isExpired = createdAt > 0 && (now - createdAt) > PAIR_REQUEST_TTL_MS;
+          const status = String(row.status || 'pending').toLowerCase();
+          if (isExpired || status === 'approved' || status === 'rejected') {
+            tasks.push(db.ref(pairRequestPath(safePin, requestId)).remove());
           }
         });
         if (tasks.length) await Promise.all(tasks);
@@ -61,16 +65,18 @@
       async readSyncPin(pin = '') {
         const safePin = normalizeSyncPin(pin);
         if (safePin.length !== 6) return null;
-
-        const snap = await db.ref(`syncPins/${safePin}`).get();
+        const snap = await db.ref('pair_hosts').orderByChild('pin').equalTo(safePin).limitToFirst(1).get();
         if (!snap.exists()) return null;
-        const payload = snap.val() || {};
+        const [masterDeviceId, payloadRaw] = Object.entries(snap.val() || {})[0] || [];
+        const payload = payloadRaw && typeof payloadRaw === 'object' ? payloadRaw : {};
+        const expiresAt = Number(payload.expires_at || 0);
+        if (expiresAt && expiresAt < Date.now()) return null;
         return {
           pin: safePin,
           shopId: String(payload.shopId || ''),
           syncVersion: Number(payload.syncVersion || 0),
-          masterDeviceId: String(payload.masterDeviceId || ''),
-          active: payload.active !== false,
+          masterDeviceId: String(masterDeviceId || payload.parentMachineId || ''),
+          active: String(payload.status || 'waiting') === 'waiting',
           updatedAt: Number(payload.updatedAt || 0)
         };
       },
@@ -84,20 +90,6 @@
         const safeVersion = Number(meta.syncVersion || 1);
         const safePin = normalizeSyncPin(meta.currentSyncPin || '');
         const masterPath = `${shopRoot(shopId)}/master`;
-        const prevSnap = await db.ref(masterPath).get();
-        const prevPin = normalizeSyncPin(prevSnap.val()?.currentSyncPin || '');
-        const safeClientSessions = (meta.clientSessions && typeof meta.clientSessions === 'object')
-          ? Object.entries(meta.clientSessions).reduce((acc, [clientId, session]) => {
-            if (!clientId || !session || typeof session !== 'object') return acc;
-            acc[clientId] = {
-              clientSessionToken: session.clientSessionToken || '',
-              sessionSyncVersion: Number(session.sessionSyncVersion || safeVersion),
-              approvedAt: Number(session.approvedAt || Date.now())
-            };
-            return acc;
-          }, {})
-          : {};
-
         const payload = {
           shopId,
           shopName: meta.shopName || 'FAKDU',
@@ -105,50 +97,22 @@
           currentSyncPin: safePin,
           syncVersion: safeVersion,
           approvedClients: Array.isArray(meta.approvedClients) ? meta.approvedClients : [],
-          clientSessions: safeClientSessions,
+          clientSessions: meta.clientSessions && typeof meta.clientSessions === 'object' ? meta.clientSessions : {},
           updatedAt: Date.now()
         };
-        const now = Date.now();
-        if (safePin) {
-          const pinRef = db.ref(`syncPins/${safePin}`);
-          const tx = await pinRef.transaction((current) => {
-            const currentShopId = String(current?.shopId || '');
-            const isAvailable = !current || currentShopId === shopId || current?.active === false;
-            if (!isAvailable) return;
-            return {
-              shopId,
-              syncVersion: safeVersion,
-              masterDeviceId: payload.masterDeviceId,
-              active: true,
-              updatedAt: now
-            };
-          });
-          if (!tx.committed) {
-            const err = new Error('PIN_COLLISION');
-            err.code = 'PIN_COLLISION';
-            throw err;
-          }
-        }
         await db.ref(masterPath).set(payload);
-        if (safePin) {
-          await db.ref(`syncPins/${safePin}`).set({
+        if (safePin && payload.masterDeviceId) {
+          await db.ref(pairHostPath(payload.masterDeviceId)).set({
+            parentMachineId: payload.masterDeviceId,
             shopId,
+            pin: safePin,
             syncVersion: safeVersion,
-            masterDeviceId: payload.masterDeviceId,
-            active: true,
-            updatedAt: now
+            status: 'waiting',
+            expires_at: Date.now() + PAIR_PIN_TTL_MS,
+            updatedAt: Date.now()
           });
+          await cleanupRequests(safePin);
         }
-        if (prevPin && prevPin !== safePin) {
-          await db.ref(`syncPins/${prevPin}`).update({
-            shopId,
-            syncVersion: safeVersion,
-            masterDeviceId: payload.masterDeviceId,
-            active: false,
-            updatedAt: now
-          });
-        }
-        await cleanupSyncPinsForShop(shopId, safePin, prevPin);
       },
       listen(shopId = '', minTs = Date.now(), onMessage = () => {}) {
         if (!shopId) return () => {};
@@ -163,39 +127,60 @@
         ref.on('child_added', handler);
         return () => ref.off('child_added', handler);
       },
-      listenJoinRequests(shopId = '', onRequest = () => {}) {
-        const safePin = normalizeSyncPin(shopId);
+      listenJoinRequests(pin = '', onRequest = () => {}) {
+        const safePin = normalizeSyncPin(pin);
         if (safePin.length !== 6) return () => {};
         const ref = db.ref(pairRequestPath(safePin));
         const handler = (snap) => {
           const payload = snap.val();
-          if (!payload) return;
-          const hasRequestId = payload.clientId || payload.child_machine_id;
-          if (!hasRequestId) return;
+          if (!payload || typeof payload !== 'object') return;
           onRequest({
             ...payload,
+            requestId: String(snap.key || payload.requestId || ''),
             pin: safePin
           });
         };
-        ref.on('value', handler);
-        return () => {
-          ref.off('value', handler);
-        };
+        ref.on('child_added', handler);
+        return () => ref.off('child_added', handler);
       },
-      listenClientApprovalStatus(shopId = '', clientId = '', onStatus = () => {}) {
-        const safePin = normalizeSyncPin(shopId);
-        if (safePin.length !== 6) return () => {};
-        const safeClientId = String(clientId || '');
-        const ref = db.ref(pairRequestPath(safePin));
-        const handler = (snap) => {
-          if (!snap.exists()) return;
-          const payload = snap.val() || {};
-          const requestClientId = String(payload.clientId || payload.child_machine_id || '');
-          if (safeClientId && requestClientId && safeClientId !== requestClientId) return;
-          onStatus(payload);
+      listenClientApprovalStatus(pin = '', clientId = '', requestIdOrCb = '', maybeCb = null) {
+        const safeClientId = String(clientId || '').trim();
+        const safePin = normalizeSyncPin(pin);
+        const requestId = typeof requestIdOrCb === 'string' ? String(requestIdOrCb || '').trim() : '';
+        const onStatus = typeof requestIdOrCb === 'function' ? requestIdOrCb : maybeCb;
+        if (!safeClientId || typeof onStatus !== 'function') return () => {};
+
+        const sessionRef = db.ref(pairSessionPath(safeClientId));
+        const requestRef = (safePin.length === 6 && requestId) ? db.ref(pairRequestPath(safePin, requestId)) : null;
+        const stops = [];
+        const pushPayload = (payload, source = '') => {
+          if (!payload || typeof payload !== 'object') return;
+          const requestClientId = String(payload.child_machine_id || payload.clientId || '');
+          if (requestClientId && requestClientId !== safeClientId) return;
+          onStatus({ ...payload, source });
         };
-        ref.on('value', handler);
-        return () => ref.off('value', handler);
+
+        const sessionHandler = (snap) => {
+          if (!snap.exists()) return;
+          pushPayload(snap.val(), 'session');
+        };
+        sessionRef.on('value', sessionHandler);
+        stops.push(() => sessionRef.off('value', sessionHandler));
+
+        if (requestRef) {
+          const requestHandler = (snap) => {
+            if (!snap.exists()) return;
+            pushPayload(snap.val(), 'request');
+          };
+          requestRef.on('value', requestHandler);
+          stops.push(() => requestRef.off('value', requestHandler));
+        }
+
+        return () => {
+          stops.forEach((stop) => {
+            try { stop(); } catch (_) {}
+          });
+        };
       },
       listenClient(shopId = '', clientId = '', onClient = () => {}) {
         if (!shopId || !clientId) return () => {};
@@ -227,45 +212,82 @@
           createdAt: Date.now()
         });
       },
-      async writeJoinRequest(shopId = '', client = {}) {
-        const safePin = normalizeSyncPin(shopId || client?.pin || '');
-        const clientId = String(client?.clientId || client?.child_machine_id || '');
-        if (safePin.length !== 6 || !clientId) return;
+      async writeJoinRequest(pin = '', client = {}) {
+        const safePin = normalizeSyncPin(pin || client?.pin || '');
+        const clientId = String(client?.clientId || client?.child_machine_id || '').trim();
+        const requestId = String(client?.requestId || uid()).trim();
+        if (safePin.length !== 6 || !clientId || !requestId) return null;
         const now = Date.now();
-        await db.ref(pairRequestPath(safePin)).set({
-          ...client,
-          clientId,
-          child_machine_id: clientId,
+        await db.ref(pairRequestPath(safePin, requestId)).set({
+          requestId,
           pin: safePin,
-          shopId: client.shopId || '',
-          type: 'CLIENT_ACCESS_REQUEST',
+          child_machine_id: clientId,
+          clientId,
+          child_name: String(client?.child_name || client?.profileName || client?.name || 'เครื่องลูก'),
+          child_avatar: String(client?.child_avatar || client?.avatar || ''),
+          shopId: String(client?.shopId || ''),
+          syncVersion: Number(client?.syncVersion || 1),
           status: 'pending',
-          requestedAt: Number(client.requestedAt || now),
+          created_at: Number(client?.created_at || now),
           updatedAt: now
         });
+        return requestId;
       },
-      async sendJoinRequest(shopId = '', client = {}) {
-        return this.writeJoinRequest(shopId, client);
+      async sendJoinRequest(pin = '', client = {}) {
+        return this.writeJoinRequest(pin, client);
       },
-      async resolveJoinRequest(shopId = '', clientId = '', status = 'approved', extra = {}) {
-        const safePin = normalizeSyncPin(shopId || extra?.pin || '');
-        if (safePin.length !== 6) return;
+      async resolveJoinRequest(pin = '', clientId = '', status = 'approved', extra = {}) {
+        const safePin = normalizeSyncPin(pin || extra?.pin || '');
+        const safeClientId = String(extra.child_machine_id || extra.clientId || clientId || '').trim();
+        if (safePin.length !== 6 || !safeClientId) return;
         const safeStatus = String(status || '').toLowerCase() === 'rejected' ? 'rejected' : 'approved';
-        await db.ref(pairRequestPath(safePin)).update({
+        let targetRequestId = String(extra.requestId || '').trim();
+        if (!targetRequestId) {
+          try {
+            const snap = await db.ref(pairRequestPath(safePin))
+              .orderByChild('child_machine_id')
+              .equalTo(safeClientId)
+              .limitToLast(1)
+              .get();
+            if (snap.exists()) {
+              const first = Object.keys(snap.val() || {})[0] || '';
+              targetRequestId = String(first || '').trim();
+            }
+          } catch (_) {}
+        }
+        if (targetRequestId) {
+          await db.ref(pairRequestPath(safePin, targetRequestId)).update({
+            requestId: targetRequestId,
+            status: safeStatus,
+            approved: safeStatus === 'approved',
+            child_machine_id: safeClientId,
+            clientId: safeClientId,
+            signed_token: String(extra.signed_token || extra.clientSessionToken || ''),
+            clientSessionToken: String(extra.clientSessionToken || extra.signed_token || ''),
+            ...extra,
+            updatedAt: Date.now()
+          });
+        }
+        await db.ref(pairSessionPath(safeClientId)).set({
+          child_machine_id: safeClientId,
+          clientId: safeClientId,
+          requestId: targetRequestId || '',
+          pin: safePin,
+          shopId: String(extra.shopId || ''),
+          syncVersion: Number(extra.sessionSyncVersion || extra.syncVersion || 1),
           status: safeStatus,
           approved: safeStatus === 'approved',
-          child_machine_id: String(extra.child_machine_id || clientId || ''),
-          clientId: String(extra.clientId || extra.child_machine_id || clientId || ''),
+          clientSessionToken: String(extra.clientSessionToken || extra.signed_token || ''),
           signed_token: String(extra.signed_token || extra.clientSessionToken || ''),
-          ...extra,
+          approvedAt: Number(extra.approvedAt || Date.now()),
           updatedAt: Date.now()
         });
       },
-      async approveClient(shopId = '', clientId = '', extra = {}) {
-        return this.resolveJoinRequest(shopId, clientId, 'approved', extra);
+      async approveClient(pin = '', clientId = '', extra = {}) {
+        return this.resolveJoinRequest(pin, clientId, 'approved', extra);
       },
-      async rejectClient(shopId = '', clientId = '', extra = {}) {
-        return this.resolveJoinRequest(shopId, clientId, 'rejected', extra);
+      async rejectClient(pin = '', clientId = '', extra = {}) {
+        return this.resolveJoinRequest(pin, clientId, 'rejected', extra);
       },
       async upsertClient(shopId = '', client = {}) {
         if (!shopId || !client?.clientId) return;
@@ -278,7 +300,6 @@
       async clearClientSessions(shopId = '') {
         if (!shopId) return;
         await db.ref(`${shopRoot(shopId)}/clients`).remove();
-        await db.ref(`${shopRoot(shopId)}/joinRequests`).remove();
       },
       async writeOperation(shopId = '', operation = {}) {
         if (!shopId || !operation?.type) return;

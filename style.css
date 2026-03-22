@@ -245,6 +245,19 @@ hr {
   letter-spacing: 0.01em;
 }
 
+.header-app-name {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 10px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase;
+}
+
 #trial-badge:hover {
   filter: brightness(1.04);
 }
@@ -490,6 +503,7 @@ hr {
 }
 
 .sales-compare-chart {
+
   display: flex;
   gap: 12px;
 }
@@ -502,6 +516,20 @@ hr {
   padding: 12px;
   border-radius: 18px;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sales-compare-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 16px;
+  background: #f8fafc;
+
   border: 1px solid rgba(226, 232, 240, 0.9);
 }
 
@@ -515,11 +543,15 @@ hr {
   width: 100%;
   border-radius: 10px 10px 6px 6px;
   min-height: 6px;
+
   transition: height .25s ease;
+
+
 }
 
 .sales-compare-bar.current { background: linear-gradient(180deg, #10b981, #047857); }
 .sales-compare-bar.previous { background: linear-gradient(180deg, #60a5fa, #2563eb); }
+
 .sales-compare-percent {
   font-size: 11px;
   font-weight: 900;
@@ -1050,6 +1082,11 @@ hr {
   #trial-badge {
     padding: 6px 14px !important;
     font-size: 12px !important;
+  }
+
+  .header-app-name {
+    bottom: 8px;
+    font-size: 10px;
   }
 
   #screen-customer .flex.justify-between.items-center.mb-3 {

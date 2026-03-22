@@ -1117,11 +1117,27 @@
     queue.innerHTML = queueRows.map((unit) => {
       const statusMeta = getUnitStatusMeta(unit);
       const total = unit.orders.reduce((sum, row) => sum + row.total, 0);
+
       const checkoutActionLabel = IS_CLIENT_NODE ? 'ดูสถานะ' : 'เปิดบิล';
       const checkoutAction = `openCheckout(${unit.id})`;
       const waitStart = unit.checkoutRequestedAt || unit.lastActivityAt || unit.startTime;
       const waitText = waitStart ? `รอเช็คบิล ${formatDurationFrom(waitStart)}` : 'รอเช็คบิล';
       const thumbRows = unit.orders;
+
+      const draftTotal = cart.reduce((sum, row) => sum + row.total, 0);
+      const checkoutActionLabel = hasDraft
+        ? 'ไปส่งออร์เดอร์'
+        : IS_CLIENT_NODE
+          ? 'ดูสถานะ'
+          : 'เปิดบิล';
+      const checkoutAction = hasDraft ? `openTable(${unit.id})` : `openCheckout(${unit.id})`;
+      const checkoutRequestBtn = hasDraft
+        ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 opacity-60 pointer-events-none">ขอเช็คบิล</button>`
+        : IS_CLIENT_NODE
+          ? `<button onclick="markCheckoutRequest(${unit.id})" class="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-3 rounded-2xl font-black text-sm active:scale-95 ${unit.checkoutRequested ? 'opacity-60 pointer-events-none' : ''}">${unit.checkoutRequested ? 'ขอเช็คบิลแล้ว' : 'ขอเช็คบิล'}</button>`
+          : '';
+      const thumbRows = hasDraft ? cart : unit.orders;
+
       return `
         <div class="unit-status-ring ${statusMeta.cls} bg-white p-4 rounded-[24px] border-2 shadow-sm relative ${getUnitCardClass(unit)}">
           ${unit.newItemsQty > 0 ? `<div class="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-full shadow border-2 border-white">+${unit.newItemsQty}</div>` : ''}
@@ -1135,7 +1151,11 @@
               <div class="text-[10px] text-gray-400 font-bold">${formatDurationFrom(unit.startTime)}</div>
             </div>
           </div>
+
           <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
+
+          <div class="text-[11px] text-gray-500 font-bold mb-3 truncate">${hasDraft ? cart.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ') : unit.orders.map((row) => `${row.baseName || row.name} x${row.qty}`).join(', ')}</div>
+
           ${renderUnitItemThumbnails(thumbRows)}
           <div class="flex gap-2">
             <button onclick="${checkoutAction}" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl font-black text-sm active:scale-95">${checkoutActionLabel}</button>
@@ -1416,6 +1436,7 @@
       .reduce((sum, sale) => sum + Number(sale.total || 0), 0);
     const currentTotal = sumSales(currentStartStr, currentEndStr);
     const previousTotal = sumSales(previousStartStr, previousEndStr);
+
     const percent = previousTotal > 0
       ? ((currentTotal - previousTotal) / previousTotal) * 100
       : (currentTotal > 0 ? 100 : 0);
@@ -1423,6 +1444,11 @@
       currentTotal,
       previousTotal,
       percent,
+
+    return {
+      currentTotal,
+      previousTotal,
+
       currentLabel,
       previousLabel,
       title,
@@ -1444,8 +1470,12 @@
     const diff = data.currentTotal - data.previousTotal;
     const isUp = diff >= 0;
     if (chip) {
+
       const percentText = `${isUp ? '+' : '-'}${Math.abs(data.percent).toFixed(1)}%`;
       chip.textContent = `${percentText}`;
+
+      chip.textContent = `${isUp ? '▲' : '▼'} ${formatMoney(Math.abs(diff))}`;
+
       chip.className = `text-xs font-black px-3 py-1.5 rounded-full ${isUp ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`;
     }
     const max = Math.max(data.currentTotal, data.previousTotal, 1);
@@ -1454,6 +1484,7 @@
     if (chart) {
       chart.innerHTML = `
         <div class="sales-compare-col">
+
           <div class="text-[11px] font-bold text-gray-500">ล่าสุด • ${data.currentLabel}</div>
           <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
           <div class="sales-compare-percent ${isUp ? 'up' : 'down'}">${isUp ? '+' : '-'}${Math.abs(data.percent).toFixed(1)}%</div>
@@ -1463,6 +1494,15 @@
           <div class="text-[11px] font-bold text-gray-500">เปรียบเทียบ • ${data.previousLabel}</div>
           <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
           <div class="sales-compare-percent flat">ฐานเปรียบเทียบ</div>
+
+          <div class="text-[11px] font-bold text-gray-500">${data.currentLabel}</div>
+          <div class="text-lg font-black text-emerald-700">฿${formatMoney(data.currentTotal)}</div>
+          <div class="sales-compare-bar-wrap"><div class="sales-compare-bar current" style="height:${currentPct}%"></div></div>
+        </div>
+        <div class="sales-compare-col">
+          <div class="text-[11px] font-bold text-gray-500">${data.previousLabel}</div>
+          <div class="text-lg font-black text-blue-700">฿${formatMoney(data.previousTotal)}</div>
+
           <div class="sales-compare-bar-wrap"><div class="sales-compare-bar previous" style="height:${previousPct}%"></div></div>
         </div>
       `;
@@ -1470,11 +1510,14 @@
   }
 
   function selectSalesCompareMode(mode, element) {
+
     if (!state.isPro && mode !== 'today') {
       showToast('รุ่นทดลองดูกราฟได้เฉพาะวันนี้', 'error');
       openModal('modal-pro-unlock');
       return;
     }
+
+
     state.activeSalesCompare = mode;
     document.querySelectorAll('.sales-summary-card').forEach((card) => card.classList.remove('is-active'));
     element?.classList?.add('is-active');

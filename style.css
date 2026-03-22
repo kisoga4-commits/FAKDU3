@@ -503,6 +503,20 @@ hr {
 }
 
 .sales-compare-chart {
+
+  display: flex;
+  gap: 12px;
+}
+
+.sales-compare-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -515,6 +529,7 @@ hr {
   padding: 10px;
   border-radius: 16px;
   background: #f8fafc;
+
   border: 1px solid rgba(226, 232, 240, 0.9);
 }
 
@@ -528,10 +543,28 @@ hr {
   width: 100%;
   border-radius: 10px 10px 6px 6px;
   min-height: 6px;
+
+  transition: height .25s ease;
+
+
 }
 
 .sales-compare-bar.current { background: linear-gradient(180deg, #10b981, #047857); }
 .sales-compare-bar.previous { background: linear-gradient(180deg, #60a5fa, #2563eb); }
+
+.sales-compare-percent {
+  font-size: 11px;
+  font-weight: 900;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 4px 9px;
+}
+.sales-compare-percent.up { color: #047857; background: #d1fae5; }
+.sales-compare-percent.down { color: #be123c; background: #ffe4e6; }
+.sales-compare-percent.flat { color: #334155; background: #e2e8f0; }
 
 .table-has-draft,
 .unit-draft,

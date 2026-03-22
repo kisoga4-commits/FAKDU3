@@ -224,9 +224,20 @@
     for (let i = 0; i < text.length; i += 1) h = ((h << 5) - h) + text.charCodeAt(i);
     return Math.abs(h).toString(36).toUpperCase();
   }
+  function randomIdChunk(len = 8) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const arr = new Uint32Array(len);
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      window.crypto.getRandomValues(arr);
+    } else {
+      for (let i = 0; i < len; i += 1) arr[i] = Math.floor(Math.random() * 0xffffffff);
+    }
+    let out = '';
+    for (let i = 0; i < len; i += 1) out += chars[arr[i] % chars.length];
+    return out;
+  }
   function makeShopId() {
-    const base = `${state.db.shopName || 'FAKDU'}-${state.hwid || 'DEVICE'}`;
-    return `SHOP-${hashLike(base).slice(0, 8)}`;
+    return `SHOP-${randomIdChunk(8)}`;
   }
   function generateSyncKey(seed = '') {
     const entropy = `${seed}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -3634,7 +3645,7 @@
     renderAdminLists();
     renderSystemPanels();
     updateCartTotal();
-    if (qs('display-hwid')) qs('display-hwid').textContent = state.db.shopName || 'FAKDU';
+    if (qs('display-hwid')) qs('display-hwid').textContent = state.db.shopId || '-';
   }
   //* render close
 

@@ -7,6 +7,7 @@
   const LS_LAST_SHOP_ID = 'FAKDU_VAULT_LAST_SHOP_ID';
   const LS_LAST_LICENSE = 'FAKDU_VAULT_LAST_LICENSE_V1021';
   const LS_ACTIVATION_CACHE = 'FAKDU_VAULT_ACTIVATION_CACHE_V1021';
+  const SERVER_SECRET_ENV = 'FAKDU_VAULT_MASTER_SECRET';
 
   function now() {
     return Date.now();
@@ -52,6 +53,10 @@
     const api = window.FakduLicenseApi;
     if (!api || typeof api !== 'object') return null;
     return api;
+  }
+
+  function getServerSecretHint() {
+    return `ต้องตั้งค่า ${SERVER_SECRET_ENV} ไว้เฉพาะฝั่ง owner/server เท่านั้น`;
   }
 
   function ensureDbShape(db) {
@@ -185,7 +190,7 @@
 
     const api = getLicenseApi();
     if (!api || typeof api.verifyLicenseOnline !== 'function') {
-      return { valid: false, message: 'ยังไม่ได้ตั้งค่า License API ฝั่งเซิร์ฟเวอร์' };
+      return { valid: false, message: `ยังไม่ได้ตั้งค่า License API ฝั่งเซิร์ฟเวอร์ (${getServerSecretHint()})` };
     }
 
     try {
@@ -235,7 +240,7 @@
     const api = getLicenseApi();
     if (!api || typeof api.activateOnline !== 'function') {
       db.licenseActive = false;
-      return { valid: false, message: 'ยังไม่ได้ตั้งค่า License API ฝั่งเซิร์ฟเวอร์' };
+      return { valid: false, message: `ยังไม่ได้ตั้งค่า License API ฝั่งเซิร์ฟเวอร์ (${getServerSecretHint()})` };
     }
 
     try {

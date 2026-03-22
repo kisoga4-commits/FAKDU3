@@ -2,6 +2,7 @@
   'use strict';
 
   const LS_FORCE_CLIENT_MODE = 'FAKDU_FORCE_CLIENT_MODE';
+  const LS_PENDING_PAIR_REQUEST_ID = 'FAKDU_PENDING_PAIR_REQUEST_ID';
   const CLIENT_PAGE = 'client.html';
   const INDEX_PAGE = 'index.html';
 
@@ -29,7 +30,8 @@
     const pin = String(localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || '').trim();
     const shopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '').trim();
     const clientId = String(localStorage.getItem('FAKDU_CLIENT_ID') || '').trim();
-    return { pin, shopId, clientId };
+    const requestId = String(localStorage.getItem(LS_PENDING_PAIR_REQUEST_ID) || '').trim();
+    return { pin, shopId, clientId, requestId };
   }
 
   function listenApprovalAndRedirectIfNeeded() {
@@ -45,7 +47,7 @@
       ? api.listenClientApprovalStatus.bind(api)
       : api.listenClient?.bind(api);
     if (typeof listenFn !== 'function') return;
-    listenFn(pending.pin, pending.clientId, async (payload) => {
+    listenFn(pending.pin, pending.clientId, pending.requestId, async (payload) => {
       console.log('[FAKDU][SYNC] client-core approval status update', payload);
       if (!payload) return;
       if (payload.approved === true && (payload.clientSessionToken || payload.signed_token)) {
@@ -59,6 +61,7 @@
         localStorage.setItem('FAKDU_CLIENT_SESSION', JSON.stringify(session));
         localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
         if (window.FakduDB?.saveClientSession) await window.FakduDB.saveClientSession(session);
+        localStorage.removeItem(LS_PENDING_PAIR_REQUEST_ID);
         redirectTo(CLIENT_PAGE);
       }
       if (payload.approved === false || String(payload.status || '').toLowerCase() === 'rejected') {
@@ -71,12 +74,12 @@
     const hasSession = !!readClientSession();
     const forceClientMode = localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true';
 
-    if (!isClientPage() && (hasSession || forceClientMode)) {
+    if (!isClientPage() && hasSession) {
       redirectTo(CLIENT_PAGE);
       return;
     }
 
-    if (isClientPage() && !hasSession) {
+    if (isClientPage() && !hasSession && !forceClientMode) {
       localStorage.removeItem(LS_FORCE_CLIENT_MODE);
       redirectTo(INDEX_PAGE);
       return;

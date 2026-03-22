@@ -714,14 +714,9 @@
                 submitClientAccessRequest();
                 return;
             }
-            const pin = document.getElementById('manual-pin')?.value?.trim();
-            if (!pin) {
-                if (typeof showToast === 'function') showToast('กรุณากรอก PIN', 'error');
-                else alert('กรุณากรอก PIN');
-                return;
-            }
-            localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
-            window.location.href = 'index.html?mode=client';
+            console.error('[FAKDU][SYNC] submitClientAccessRequest() is missing. Abort connect flow.');
+            if (typeof showToast === 'function') showToast('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่', 'error');
+            else alert('ระบบเชื่อมต่อยังไม่พร้อม กรุณารีเฟรชหน้าแล้วลองใหม่');
         };
 
         window.openProModal = window.openProModal || function() {
@@ -740,9 +735,9 @@
         }
     </script>
 
-    <script src="js/db.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script src="js/db.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/vault.js"></script>
     <script src="js/core.js"></script>

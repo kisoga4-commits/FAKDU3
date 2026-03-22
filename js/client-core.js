@@ -20,11 +20,6 @@
     return /client\.html$/i.test(window.location.pathname || '');
   }
 
-  function isClientQueryMode() {
-    const params = new URLSearchParams(window.location.search || '');
-    return params.get('mode') === 'client';
-  }
-
   function redirectTo(path) {
     if (!path) return;
     window.location.replace(path);
@@ -45,11 +40,13 @@
     if (!pending.shopId || !pending.clientId) return;
     const api = window.FakduSync?.resolveApi?.();
     if (!api) return;
+    console.log('[FAKDU][SYNC] client-core waiting for approval status', pending);
     const listenFn = typeof api.listenClientApprovalStatus === 'function'
       ? api.listenClientApprovalStatus.bind(api)
       : api.listenClient?.bind(api);
     if (typeof listenFn !== 'function') return;
     listenFn(pending.shopId, pending.clientId, async (payload) => {
+      console.log('[FAKDU][SYNC] client-core approval status update', payload);
       if (!payload) return;
       if (payload.approved === true && payload.clientSessionToken) {
         const session = {
@@ -74,7 +71,7 @@
     const hasSession = !!readClientSession();
     const forceClientMode = localStorage.getItem(LS_FORCE_CLIENT_MODE) === 'true';
 
-    if (!isClientPage() && (hasSession || forceClientMode || isClientQueryMode())) {
+    if (!isClientPage() && (hasSession || forceClientMode)) {
       redirectTo(CLIENT_PAGE);
       return;
     }

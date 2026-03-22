@@ -9,6 +9,7 @@
   const LS_PENDING_SYNC_VERSION = 'FAKDU_PENDING_SYNC_VERSION';
   const LS_CLIENT_OP_QUEUE = 'FAKDU_CLIENT_OP_QUEUE';
   const LS_FORCE_CLIENT_MODE = 'FAKDU_FORCE_CLIENT_MODE';
+  const LS_PENDING_PAIR_REQUEST_ID = 'FAKDU_PENDING_PAIR_REQUEST_ID';
   const LS_MENU_IMAGE_CACHE_PREFIX = 'FAKDU_MENU_IMAGE_CACHE_';
   const HEARTBEAT_INTERVAL_MS = 5000;
   const CLIENT_AVATAR_MAX_BYTES = 1.5 * 1024 * 1024;
@@ -2041,7 +2042,8 @@ function getUnitCardClass(unit) {
         if (clientId) {
           try {
             const pendingPin = String(localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || state.db.sync.currentSyncPin || '');
-            state.stopClientApproveListener = api.listenClientApprovalStatus(pendingPin, clientId, (payload) => {
+            const pendingRequestId = String(localStorage.getItem(LS_PENDING_PAIR_REQUEST_ID) || '');
+            state.stopClientApproveListener = api.listenClientApprovalStatus(pendingPin, clientId, pendingRequestId, (payload) => {
               const isApproved = payload?.approved === true;
               const isRejected = payload?.approved === false && String(payload?.status || '').toLowerCase() === 'rejected';
               if (!isApproved && !isRejected) return;
@@ -2477,6 +2479,7 @@ function getUnitCardClass(unit) {
     localStorage.setItem('FAKDU_CLIENT_APPROVED', 'false');
     await persistClientSession(null);
     localStorage.removeItem('FAKDU_PENDING_CLIENT_PIN');
+    localStorage.removeItem(LS_PENDING_PAIR_REQUEST_ID);
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
     await clearClientOpQueue();
     if (window.FakduDB && typeof window.FakduDB.clearClientAppliedOperations === 'function') {
@@ -2491,7 +2494,8 @@ function getUnitCardClass(unit) {
     if (!IS_CLIENT_NODE) return;
     const pendingPin = localStorage.getItem('FAKDU_PENDING_CLIENT_PIN') || '';
     const pendingShopId = localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '';
-    if (!pendingPin || !pendingShopId) return;
+    const pendingRequestId = localStorage.getItem(LS_PENDING_PAIR_REQUEST_ID) || '';
+    if (!pendingPin || !pendingRequestId) return;
     const profile = getClientProfile();
     try {
       emitSyncMessage({
@@ -2502,18 +2506,20 @@ function getUnitCardClass(unit) {
           avatar: profile.avatar,
           pin: pendingPin,
           shopId: pendingShopId,
-          syncVersion: getPendingSyncVersion()
+          syncVersion: getPendingSyncVersion(),
+          requestId: pendingRequestId
         }
       });
       const api = resolveFirebaseSyncApi();
       if (api) {
-        api.writeJoinRequest(pendingShopId, {
+        api.writeJoinRequest(pendingPin, {
           clientId: profile.clientId,
           profileName: profile.profileName,
           avatar: profile.avatar,
           pin: pendingPin,
           shopId: pendingShopId,
-          syncVersion: getPendingSyncVersion()
+          syncVersion: getPendingSyncVersion(),
+          requestId: pendingRequestId
         }).catch(() => {});
       }
     } catch (_) {}
@@ -2559,6 +2565,8 @@ function getUnitCardClass(unit) {
 
   function handleClientAccessRequest(client) {
     if (!client?.clientId) return;
+    client.profileName = client.profileName || client.child_name || client.name || '';
+    client.avatar = client.avatar || client.child_avatar || '';
     if (client.shopId && String(client.shopId || '') !== String(state.db.shopId || '')) return;
     const requestedStatus = String(client.status || 'pending').toLowerCase();
     if (requestedStatus && requestedStatus !== 'pending') return;
@@ -2586,6 +2594,7 @@ function getUnitCardClass(unit) {
       exists.profileName = client.profileName || exists.profileName || exists.name;
       exists.name = exists.profileName;
       exists.syncVersion = Number(client.syncVersion || exists.syncVersion || 1);
+      exists.requestId = client.requestId || exists.requestId || '';
     } else {
       state.db.sync.approvals.unshift({
         clientId: client.clientId,
@@ -2593,6 +2602,7 @@ function getUnitCardClass(unit) {
         name: client.profileName || client.name || `Client ${state.db.sync.approvals.length + 1}`,
         avatar: client.avatar || '',
         pin: client.pin || '',
+        requestId: client.requestId || '',
         syncVersion: Number(client.syncVersion || 1),
         requestedAt: Date.now()
       });
@@ -2899,6 +2909,7 @@ function getUnitCardClass(unit) {
         ? api.approveClient.bind(api)
         : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'approved', extra));
       approveClientRequest(state.db.sync.currentSyncPin, client.clientId, {
+        requestId: approval.requestId || '',
         approvedAt: Date.now(),
         approvedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER',
         shopId: state.db.shopId,
@@ -2965,6 +2976,7 @@ function getUnitCardClass(unit) {
 
   function rejectClient(clientId) {
     console.log('[FAKDU][SYNC] master reject request', { clientId });
+    const approval = state.db.sync.approvals.find((row) => row.clientId === clientId);
     state.db.sync.approvals = state.db.sync.approvals.filter((row) => row.clientId !== clientId);
     logOperation('REJECT_CLIENT', { clientId });
     const api = resolveFirebaseSyncApi();
@@ -2973,6 +2985,7 @@ function getUnitCardClass(unit) {
         ? api.rejectClient.bind(api)
         : ((shopId, cid, extra) => api.resolveJoinRequest(shopId, cid, 'rejected', extra));
       rejectClientRequest(state.db.sync.currentSyncPin, clientId, {
+        requestId: String(approval?.requestId || ''),
         rejectedAt: Date.now(),
         rejectedBy: state.hwid || state.db.sync.masterDeviceId || 'MASTER',
         shopId: state.db.shopId,
@@ -3221,6 +3234,7 @@ function getUnitCardClass(unit) {
     const profile = getClientProfile();
     let resolvedShopId = '';
     let serverVersion = 0;
+    const requestId = `${profile.clientId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     try {
       resolvedShopId = String(localStorage.getItem('FAKDU_PENDING_MASTER_SHOP_ID') || '');
       serverVersion = Number(localStorage.getItem(LS_PENDING_SYNC_VERSION) || 0);
@@ -3228,8 +3242,11 @@ function getUnitCardClass(unit) {
         ? api.sendJoinRequest.bind(api)
         : api.writeJoinRequest.bind(api);
       await sendJoinRequest(pin, {
+        requestId,
         clientId: profile.clientId,
         child_machine_id: profile.clientId,
+        child_name: profile.profileName,
+        child_avatar: profile.avatar,
         profileName: profile.profileName,
         avatar: profile.avatar,
         pin,
@@ -3248,6 +3265,7 @@ function getUnitCardClass(unit) {
     }
     localStorage.setItem('FAKDU_PENDING_CLIENT_PIN', pin);
     localStorage.setItem('FAKDU_PENDING_MASTER_SHOP_ID', resolvedShopId);
+    localStorage.setItem(LS_PENDING_PAIR_REQUEST_ID, requestId);
     showToast('ส่งคำขอแล้ว รอเครื่องแม่อนุมัติ', 'click');
     try {
       const approvedPayload = await new Promise((resolve, reject) => {
@@ -3255,7 +3273,7 @@ function getUnitCardClass(unit) {
         const listenApprovalStatus = typeof api.listenClientApprovalStatus === 'function'
           ? api.listenClientApprovalStatus.bind(api)
           : api.listenClient.bind(api);
-        const stop = listenApprovalStatus(pin, profile.clientId, (payload) => {
+        const stop = listenApprovalStatus(pin, profile.clientId, requestId, (payload) => {
           console.log('[FAKDU][SYNC] client approval listener update', payload);
           if (!payload) return;
           if (payload.approved === false || payload.status === 'rejected') return reject(new Error('rejected'));
@@ -3282,6 +3300,7 @@ function getUnitCardClass(unit) {
       await persistClientSession(sessionPayload);
       localStorage.setItem('FAKDU_CLIENT_APPROVED', 'true');
       localStorage.setItem(LS_FORCE_CLIENT_MODE, 'true');
+      localStorage.removeItem(LS_PENDING_PAIR_REQUEST_ID);
       redirectToClientPage();
     } catch (error) {
       if (error?.message === 'rejected') {
@@ -3330,6 +3349,7 @@ function getUnitCardClass(unit) {
     localStorage.removeItem('FAKDU_PENDING_MASTER_SHOP_ID');
     localStorage.removeItem(LS_PENDING_SYNC_VERSION);
     localStorage.removeItem(LS_FORCE_CLIENT_MODE);
+    localStorage.removeItem(LS_PENDING_PAIR_REQUEST_ID);
     await clearClientOpQueue();
     if (window.FakduDB && typeof window.FakduDB.clearClientAppliedOperations === 'function') {
       try { await window.FakduDB.clearClientAppliedOperations(); } catch (_) {}
